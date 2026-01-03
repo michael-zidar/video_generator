@@ -66,7 +66,7 @@ export function Playhead({ currentTime, duration, pixelsPerSecond, height, onSee
   return (
     <div
       ref={playheadRef}
-      className="absolute top-0 z-20 cursor-ew-resize group"
+      className="absolute top-0 z-30 cursor-ew-resize group"
       style={{ 
         left: `${position}px`,
         height: `${height}px`,
@@ -74,17 +74,28 @@ export function Playhead({ currentTime, duration, pixelsPerSecond, height, onSee
       }}
       onMouseDown={handleMouseDown}
     >
-      {/* Playhead line */}
-      <div className="w-0.5 h-full bg-red-500 shadow-sm" />
+      {/* Playhead line - thicker and more visible */}
+      <div className="w-[3px] h-full bg-red-500 shadow-lg" style={{ boxShadow: '0 0 8px rgba(239, 68, 68, 0.5)' }} />
       
-      {/* Playhead handle */}
+      {/* Playhead handle - triangle at top */}
       <div 
-        className="absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-red-500 rounded-sm rotate-45 shadow-sm"
+        className="absolute -top-0 left-1/2 -translate-x-1/2"
+        style={{
+          width: 0,
+          height: 0,
+          borderLeft: '8px solid transparent',
+          borderRight: '8px solid transparent',
+          borderTop: '10px solid rgb(239 68 68)',
+          filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))'
+        }}
       />
+      
+      {/* Wider hit area for easier dragging */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-4 h-full" />
       
       {/* Time tooltip */}
       <div 
-        className={`absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-red-500 text-white text-xs font-mono rounded whitespace-nowrap transition-opacity ${
+        className={`absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 bg-red-500 text-white text-xs font-mono font-bold rounded shadow-lg whitespace-nowrap transition-opacity ${
           isDragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
         }`}
       >

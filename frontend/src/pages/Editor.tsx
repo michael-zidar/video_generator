@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useAuthStore } from '@/store/auth'
+import { useAuth } from '@clerk/clerk-react'
 import { Button } from '@/components/ui/button'
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -61,10 +63,14 @@ import { ThemeToggle } from '@/components/ui/theme-toggle'
 import { RevealPreview } from '@/components/RevealPreview'
 import { AIGenerationWizard } from '@/components/AIGenerationWizard'
 import { RenderDialog } from '@/components/RenderDialog'
+import { VideoUploadDialog } from '@/components/VideoUploadDialog'
 import { Timeline } from '@/components/Timeline'
 import { SlideCanvas } from '@/components/Canvas'
+import { SlideThumbnail } from '@/components/Timeline/SlideThumbnail'
 import { migrateSlideToElements, isElementBasedFormat } from '@/utils/slideMigration'
-import { Presentation, FileDown, Loader2, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, PenTool } from 'lucide-react'
+import { Presentation, FileDown, Loader2, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, PenTool, Eye, Edit3, Sparkles } from 'lucide-react'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 interface Course {
   id: number
@@ -170,13 +176,12 @@ function SortableSlide({ slide, index, isSelected, onSelect, onDuplicate, onDele
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-xs text-muted-foreground mb-1">Slide {index + 1}</div>
-          <div
-            className="aspect-video rounded bg-muted flex items-center justify-center text-xs overflow-hidden w-full max-w-[180px]"
-            style={{ backgroundColor: slide.background_color || '#f4f4f5' }}
-          >
-            <span className="text-center px-2 truncate text-foreground text-[10px]">
-              {slide.title || 'Untitled'}
-            </span>
+          <div className="w-full max-w-[180px]">
+            <SlideThumbnail
+              slide={slide}
+              width={180}
+              height={101}
+            />
           </div>
         </div>
         <DropdownMenu>
@@ -213,7 +218,9 @@ function SortableSlide({ slide, index, isSelected, onSelect, onDuplicate, onDele
 export function Editor() {
   const { lessonId } = useParams<{ lessonId: string }>()
   const navigate = useNavigate()
-  const { token } = useAuthStore()
+  const { getToken } = useAuth()
+  const getTokenRef = useRef(getToken)
+  getTokenRef.current = getToken
 
   const [course, setCourse] = useState<Course | null>(null)
   const [courses, setCourses] = useState<Course[]>([])
@@ -233,6 +240,7 @@ export function Editor() {
   const [showAIWizard, setShowAIWizard] = useState(false)
   const [isGeneratingScript, setIsGeneratingScript] = useState(false)
   const [scriptDuration, setScriptDuration] = useState('30')
+  const [scriptPreviewMode, setScriptPreviewMode] = useState(false)
   const [voices, setVoices] = useState<Array<{ voice_id: string; name: string; category: string; labels?: { accent?: string; gender?: string } }>>([])
   const [selectedVoice, setSelectedVoice] = useState('56bVxM2zo2S7h5paHHBt') // Zidar voice
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false)
@@ -241,6 +249,23 @@ export function Editor() {
   const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false)
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false)
   const [showRenderDialog, setShowRenderDialog] = useState(false)
+  const [showVideoUpload, setShowVideoUpload] = useState(false)
+  const [videoUploadType, setVideoUploadType] = useState<'intro' | 'outro' | 'interstitial'>('intro')
+  const [videoUploadPosition, setVideoUploadPosition] = useState(0)
+  const [timelineItems, setTimelineItems] = useState<Array<{
+    id: number
+    deck_id: number
+    type: 'intro' | 'outro' | 'interstitial'
+    asset_id: number
+    position: number
+    start_time_ms: number
+    end_time_ms: number | null
+    duration_ms: number
+    filename?: string
+    storage_path?: string
+  }>>([])
+  const [showTrimDialog, setShowTrimDialog] = useState(false)
+  const [trimItem, setTrimItem] = useState<typeof timelineItems[0] | null>(null)
 
   // DnD sensors for drag and drop
   const sensors = useSensors(
@@ -306,7 +331,8 @@ export function Editor() {
 
   const fetchVoices = async () => {
     try {
-      const response = await fetch('/api/ai/voices', {
+      const token = await getTokenRef.current()
+      const response = await fetch(`${API_BASE_URL}/api/ai/voices`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (response.ok) {
@@ -365,7 +391,8 @@ export function Editor() {
 
   const fetchCourses = async () => {
     try {
-      const response = await fetch('/api/courses', {
+      const token = await getTokenRef.current()
+      const response = await fetch(`${API_BASE_URL}/api/courses`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (response.ok) {
@@ -373,7 +400,7 @@ export function Editor() {
         // Fetch lessons for each course
         const coursesWithLessons = await Promise.all(
           data.map(async (course: Course) => {
-            const lessonsResponse = await fetch(`/api/courses/${course.id}/lessons`, {
+            const lessonsResponse = await fetch(`${API_BASE_URL}/api/courses/${course.id}/lessons`, {
               headers: { Authorization: `Bearer ${token}` },
             })
             if (lessonsResponse.ok) {
@@ -392,7 +419,8 @@ export function Editor() {
 
   const fetchLesson = async () => {
     try {
-      const response = await fetch(`/api/lessons/${lessonId}`, {
+      const token = await getTokenRef.current()
+      const response = await fetch(`${API_BASE_URL}/api/lessons/${lessonId}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (response.ok) {
@@ -401,7 +429,7 @@ export function Editor() {
         // Expand the current course
         setExpandedCourses(prev => new Set(prev).add(data.course_id))
         // Fetch course details
-        const courseResponse = await fetch(`/api/courses/${data.course_id}`, {
+        const courseResponse = await fetch(`${API_BASE_URL}/api/courses/${data.course_id}`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (courseResponse.ok) {
@@ -428,7 +456,8 @@ export function Editor() {
 
   const fetchDeck = async () => {
     try {
-      const response = await fetch(`/api/lessons/${lessonId}/deck`, {
+      const token = await getTokenRef.current()
+      const response = await fetch(`${API_BASE_URL}/api/lessons/${lessonId}/deck`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (response.ok) {
@@ -437,7 +466,7 @@ export function Editor() {
         fetchSlides(data.id)
       } else if (response.status === 404) {
         // Create a new deck
-        const createResponse = await fetch(`/api/lessons/${lessonId}/deck`, {
+        const createResponse = await fetch(`${API_BASE_URL}/api/lessons/${lessonId}/deck`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -464,7 +493,8 @@ export function Editor() {
 
   const fetchSlides = async (deckId: number) => {
     try {
-      const response = await fetch(`/api/decks/${deckId}/slides`, {
+      const token = await getTokenRef.current()
+      const response = await fetch(`${API_BASE_URL}/api/decks/${deckId}/slides`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (response.ok) {
@@ -475,6 +505,8 @@ export function Editor() {
         }
         // Fetch existing voiceovers for all slides
         fetchVoiceovers(data)
+        // Fetch timeline items (intro/outro videos)
+        fetchTimelineItems(deckId)
       }
     } catch (error) {
       console.error('Failed to fetch slides:', error)
@@ -483,23 +515,54 @@ export function Editor() {
     }
   }
 
+  const fetchTimelineItems = async (deckId: number) => {
+    try {
+      const token = await getTokenRef.current()
+      const response = await fetch(`${API_BASE_URL}/api/timeline-items/${deckId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setTimelineItems(data)
+      }
+    } catch (error) {
+      console.error('Failed to fetch timeline items:', error)
+    }
+  }
+
+  // Helper to ensure audio URLs have the full API base URL
+  const getFullAudioUrl = (url: string | undefined): string => {
+    if (!url) return ''
+    // If it's already a full URL, return as-is
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url
+    }
+    // Otherwise, prepend the API base URL
+    return `${API_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`
+  }
+
   const fetchVoiceovers = async (slidesList: Slide[]) => {
     const newVoiceovers = new Map<number, { audio_url: string; duration_ms: number }>()
+    const token = await getTokenRef.current()
     
     for (const slide of slidesList) {
       try {
-        const response = await fetch(`/api/ai/voiceover/${slide.id}`, {
+        const response = await fetch(`${API_BASE_URL}/api/ai/voiceover/${slide.id}`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (response.ok) {
           const data = await response.json()
-          if (data.audio_asset_id || data.status === 'succeeded') {
-            // Get the audio URL from stored path or construct from asset
-            const audioUrl = data.audio_url || `/data/assets/audio/${data.audio_asset_id}`
-            newVoiceovers.set(slide.id, {
-              audio_url: audioUrl,
-              duration_ms: data.duration_ms || slide.duration_ms || 5000,
-            })
+          // Only add if we have a valid audio URL or asset ID (not null/undefined)
+          const rawUrl = data.audio_url || data.audio_asset_id
+          if (rawUrl && rawUrl !== 'null' && data.status === 'succeeded') {
+            // Get the audio URL from stored path - ensure full URL
+            const audioUrl = getFullAudioUrl(rawUrl)
+            if (audioUrl && audioUrl !== `${API_BASE_URL}/null`) {
+              newVoiceovers.set(slide.id, {
+                audio_url: audioUrl,
+                duration_ms: data.duration_ms || slide.duration_ms || 5000,
+              })
+            }
           }
         }
       } catch (error) {
@@ -516,7 +579,8 @@ export function Editor() {
     if (!deck) return
 
     try {
-      const response = await fetch(`/api/decks/${deck.id}/slides`, {
+      const token = await getTokenRef.current()
+      const response = await fetch(`${API_BASE_URL}/api/decks/${deck.id}/slides`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -550,7 +614,8 @@ export function Editor() {
 
   const handleUpdateSlide = async (slideId: number, updates: Partial<Slide>) => {
     try {
-      const response = await fetch(`/api/slides/${slideId}`, {
+      const token = await getTokenRef.current()
+      const response = await fetch(`${API_BASE_URL}/api/slides/${slideId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -579,7 +644,8 @@ export function Editor() {
     if (!confirm('Are you sure you want to delete this slide?')) return
 
     try {
-      const response = await fetch(`/api/slides/${slideId}`, {
+      const token = await getTokenRef.current()
+      const response = await fetch(`${API_BASE_URL}/api/slides/${slideId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -606,7 +672,8 @@ export function Editor() {
 
   const handleDuplicateSlide = async (slideId: number) => {
     try {
-      const response = await fetch(`/api/slides/${slideId}/duplicate`, {
+      const token = await getTokenRef.current()
+      const response = await fetch(`${API_BASE_URL}/api/slides/${slideId}/duplicate`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -643,7 +710,8 @@ export function Editor() {
 
       // Update on backend
       try {
-        const response = await fetch('/api/slides/reorder', {
+        const token = await getTokenRef.current()
+        const response = await fetch(`${API_BASE_URL}/api/slides/reorder`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -677,7 +745,8 @@ export function Editor() {
     if (!deck) return
 
     try {
-      const response = await fetch(`/api/decks/${deck.id}`, {
+      const token = await getTokenRef.current()
+      const response = await fetch(`${API_BASE_URL}/api/decks/${deck.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -737,6 +806,81 @@ export function Editor() {
     }
   }, [audioPlayback, slides, selectedSlide])
 
+  // Video timeline handlers
+  const handleAddVideo = useCallback((type: 'intro' | 'outro' | 'interstitial', position = 0) => {
+    setVideoUploadType(type)
+    setVideoUploadPosition(position)
+    setShowVideoUpload(true)
+  }, [])
+
+  const handleRemoveVideo = useCallback(async (id: number) => {
+    if (!confirm('Remove this video from the timeline?')) return
+    
+    try {
+      const token = await getTokenRef.current()
+      const response = await fetch(`${API_BASE_URL}/api/timeline-items/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      
+      if (response.ok) {
+        setTimelineItems(prev => prev.filter(item => item.id !== id))
+        toast({
+          title: 'Video removed',
+          description: 'The video has been removed from the timeline.',
+        })
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to remove video',
+        variant: 'destructive',
+      })
+    }
+  }, [])
+
+  const handleEditTrim = useCallback((item: typeof timelineItems[0]) => {
+    setTrimItem(item)
+    setShowTrimDialog(true)
+  }, [])
+
+  const handleVideoUploaded = useCallback(async (assetId: number) => {
+    if (!deck) return
+    
+    try {
+      const token = await getTokenRef.current()
+      const response = await fetch(`${API_BASE_URL}/api/timeline-items`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          deck_id: deck.id,
+          asset_id: assetId,
+          type: videoUploadType,
+          position: videoUploadPosition,
+        }),
+      })
+      
+      if (response.ok) {
+        const newItem = await response.json()
+        setTimelineItems(prev => [...prev, newItem])
+        setShowVideoUpload(false)
+        toast({
+          title: 'Video added',
+          description: `${videoUploadType.charAt(0).toUpperCase() + videoUploadType.slice(1)} video has been added.`,
+        })
+      }
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to add video to timeline',
+        variant: 'destructive',
+      })
+    }
+  }, [deck, videoUploadType, videoUploadPosition])
+
   const handleTimelineSlideSelect = useCallback((slideId: number) => {
     const slide = slides.find(s => s.id === slideId)
     if (slide) {
@@ -767,7 +911,8 @@ export function Editor() {
 
     setIsGeneratingAudio(true)
     try {
-      const response = await fetch('/api/ai/voiceover/generate', {
+      const token = await getTokenRef.current()
+      const response = await fetch(`${API_BASE_URL}/api/ai/voiceover/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -786,9 +931,9 @@ export function Editor() {
 
       const data = await response.json()
       
-      // Update voiceovers map
+      // Update voiceovers map - ensure full URL
       setVoiceovers(prev => new Map(prev).set(slideId, {
-        audio_url: data.audio_url,
+        audio_url: getFullAudioUrl(data.audio_url),
         duration_ms: data.duration_ms,
       }))
 
@@ -839,7 +984,8 @@ export function Editor() {
 
     setIsGeneratingAudio(true)
     try {
-      const response = await fetch('/api/ai/voiceover/generate-batch', {
+      const token = await getTokenRef.current()
+      const response = await fetch(`${API_BASE_URL}/api/ai/voiceover/generate-batch`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -858,13 +1004,13 @@ export function Editor() {
 
       const data = await response.json()
       
-      // Update voiceovers map
+      // Update voiceovers map - ensure full URLs
       const newVoiceovers = new Map(voiceovers)
       const durationUpdates = new Map<number, number>()
       
       for (const result of data.results) {
         newVoiceovers.set(result.slide_id, {
-          audio_url: result.audio_url,
+          audio_url: getFullAudioUrl(result.audio_url),
           duration_ms: result.duration_ms,
         })
         durationUpdates.set(result.slide_id, result.duration_ms)
@@ -915,10 +1061,14 @@ export function Editor() {
   }
 
   // Generate script for a slide using AI
+  // Generate enhanced speaker notes with markdown and multi-step refinement
   const handleGenerateScript = async (slideId: number) => {
     setIsGeneratingScript(true)
     try {
-      const response = await fetch('/api/ai/scripts/generate', {
+      const token = await getTokenRef.current()
+      const slideIndex = slides.findIndex(s => s.id === slideId)
+
+      const response = await fetch(`${API_BASE_URL}/api/ai/scripts/generate-enhanced`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -928,6 +1078,9 @@ export function Editor() {
           slide_id: slideId,
           target_duration: parseInt(scriptDuration),
           tone: 'professional',
+          context: lesson?.title || '',
+          slide_index: slideIndex,
+          total_slides: slides.length,
         }),
       })
 
@@ -937,18 +1090,21 @@ export function Editor() {
       }
 
       const data = await response.json()
-      
+
       // Update the slide with the new script
-      setSlides(slides.map(s => 
+      setSlides(slides.map(s =>
         s.id === slideId ? { ...s, speaker_notes: data.speaker_notes } : s
       ))
       if (selectedSlide?.id === slideId) {
         setSelectedSlide({ ...selectedSlide, speaker_notes: data.speaker_notes })
       }
-      
+
+      // Switch to preview mode to see the markdown
+      setScriptPreviewMode(true)
+
       toast({
         title: 'Script Generated',
-        description: `Created a ${scriptDuration}-second narration script.`,
+        description: `Created natural conversational transcript with 3-step AI refinement.`,
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to generate script'
@@ -962,54 +1118,70 @@ export function Editor() {
     }
   }
 
-  // Generate scripts for all slides
+  // Generate enhanced scripts for all slides (sequentially)
   const handleGenerateAllScripts = async () => {
     if (slides.length === 0) return
-    
-    setIsGeneratingScript(true)
-    try {
-      const response = await fetch('/api/ai/scripts/generate-batch', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          slide_ids: slides.map(s => s.id),
-          target_duration: parseInt(scriptDuration),
-          tone: 'professional',
-        }),
-      })
 
-      if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || 'Failed to generate scripts')
+    setIsGeneratingScript(true)
+    let successCount = 0
+    let failCount = 0
+
+    try {
+      const token = await getTokenRef.current()
+
+      // Generate scripts for each slide sequentially with enhanced AI
+      for (let i = 0; i < slides.length; i++) {
+        const slide = slides[i]
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/ai/scripts/generate-enhanced`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              slide_id: slide.id,
+              target_duration: parseInt(scriptDuration),
+              tone: 'professional',
+              context: lesson?.title || '',
+              slide_index: i,
+              total_slides: slides.length,
+            }),
+          })
+
+          if (response.ok) {
+            const data = await response.json()
+
+            // Update the slide with the new script
+            setSlides(currentSlides => currentSlides.map(s =>
+              s.id === slide.id ? { ...s, speaker_notes: data.speaker_notes } : s
+            ))
+
+            if (selectedSlide?.id === slide.id) {
+              setSelectedSlide(current => current ? { ...current, speaker_notes: data.speaker_notes } : current)
+            }
+
+            successCount++
+          } else {
+            failCount++
+          }
+        } catch {
+          failCount++
+        }
       }
 
-      const data = await response.json()
-      
-      // Update slides with new scripts
-      const scriptMap = new Map<number, string>(data.results.map((r: { slide_id: number, speaker_notes: string }) => 
-        [r.slide_id, r.speaker_notes] as [number, string]
-      ))
-      
-      setSlides(slides.map(s => ({
-        ...s,
-        speaker_notes: scriptMap.get(s.id) ?? s.speaker_notes
-      })))
-      
-      if (selectedSlide && scriptMap.has(selectedSlide.id)) {
-        const newNotes = scriptMap.get(selectedSlide.id)
-        setSelectedSlide({ 
-          ...selectedSlide, 
-          speaker_notes: newNotes ?? selectedSlide.speaker_notes 
+      if (successCount > 0) {
+        toast({
+          title: 'Scripts Generated',
+          description: `Created ${successCount} conversational transcript${successCount !== 1 ? 's' : ''} with 3-step AI refinement.${failCount > 0 ? ` ${failCount} failed.` : ''}`,
+        })
+      } else {
+        toast({
+          title: 'Generation Failed',
+          description: 'Failed to generate any transcripts.',
+          variant: 'destructive',
         })
       }
-      
-      toast({
-        title: 'Scripts Generated',
-        description: `Created scripts for ${data.generated_count} slides.`,
-      })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to generate scripts'
       toast({
@@ -1437,7 +1609,7 @@ export function Editor() {
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => {
                 if (!deck) return
-                window.open(`/api/export/deck/${deck.id}/reveal`, '_blank')
+                window.open(`${API_BASE_URL}/api/export/deck/${deck.id}/reveal`, '_blank')
                 toast({
                   title: 'Export Started',
                   description: 'Your RevealJS presentation is being downloaded.',
@@ -1877,6 +2049,25 @@ export function Editor() {
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <h3 className="font-semibold">Speaker Notes - Slide {slides.findIndex(s => s.id === selectedSlide.id) + 1}</h3>
                     <div className="flex items-center gap-2">
+                      {selectedSlide.speaker_notes && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setScriptPreviewMode(!scriptPreviewMode)}
+                        >
+                          {scriptPreviewMode ? (
+                            <>
+                              <Edit3 className="h-4 w-4 mr-2" />
+                              Edit
+                            </>
+                          ) : (
+                            <>
+                              <Eye className="h-4 w-4 mr-2" />
+                              Preview
+                            </>
+                          )}
+                        </Button>
+                      )}
                       <Select value={scriptDuration} onValueChange={setScriptDuration}>
                         <SelectTrigger className="w-24 h-8">
                           <SelectValue />
@@ -1887,8 +2078,8 @@ export function Editor() {
                           <SelectItem value="60">60 sec</SelectItem>
                         </SelectContent>
                       </Select>
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="default"
                         size="sm"
                         onClick={() => handleGenerateScript(selectedSlide.id)}
                         disabled={isGeneratingScript}
@@ -1900,13 +2091,13 @@ export function Editor() {
                           </>
                         ) : (
                           <>
-                            <Wand2 className="h-4 w-4 mr-2" />
+                            <Sparkles className="h-4 w-4 mr-2" />
                             Generate Script
                           </>
                         )}
                       </Button>
-                      <Button 
-                        variant="ghost" 
+                      <Button
+                        variant="ghost"
                         size="sm"
                         onClick={handleGenerateAllScripts}
                         disabled={isGeneratingScript || slides.length === 0}
@@ -1915,14 +2106,32 @@ export function Editor() {
                       </Button>
                     </div>
                   </div>
-                  <Textarea
-                    className="min-h-[300px] resize-none"
-                    placeholder="Enter your speaker notes or narration script here..."
-                    value={selectedSlide.speaker_notes || ''}
-                    onChange={(e) => handleUpdateSlide(selectedSlide.id, { speaker_notes: e.target.value })}
-                  />
+
+                  {scriptPreviewMode && selectedSlide.speaker_notes ? (
+                    <div className="min-h-[300px] p-4 border rounded-lg bg-muted/30">
+                      <div className="prose prose-sm dark:prose-invert max-w-none">
+                        <Markdown remarkPlugins={[remarkGfm]}>
+                          {selectedSlide.speaker_notes}
+                        </Markdown>
+                      </div>
+                    </div>
+                  ) : (
+                    <Textarea
+                      className="min-h-[300px] resize-none font-mono text-sm"
+                      placeholder="Enter your speaker notes or narration here...
+
+Use the ✨ Generate Script button for AI-generated conversational transcript:
+• Natural speech patterns with ums, uhs, and casual language
+• Contractions and real-world speaking style
+• Context-aware transitions between slides
+• 3-step AI refinement for authentic human delivery"
+                      value={selectedSlide.speaker_notes || ''}
+                      onChange={(e) => handleUpdateSlide(selectedSlide.id, { speaker_notes: e.target.value })}
+                    />
+                  )}
+
                   <p className="text-sm text-muted-foreground">
-                    Tip: Use markdown formatting for better organization. The script will be used for voiceover generation.
+                    Tip: Generated scripts sound like natural conversation, not formal writing. Includes filler words, contractions, and casual phrasing for authentic human delivery.
                   </p>
                 </div>
               ) : (
@@ -2498,7 +2707,8 @@ export function Editor() {
                         className="absolute top-1 right-1 h-6 w-6"
                         onClick={async () => {
                           try {
-                            await fetch(`/api/ai/image/${selectedSlide.id}`, {
+                            const token = await getTokenRef.current()
+                            await fetch(`${API_BASE_URL}/api/ai/image/${selectedSlide.id}`, {
                               method: 'DELETE',
                               headers: { Authorization: `Bearer ${token}` },
                             });
@@ -2525,7 +2735,8 @@ export function Editor() {
                       <Select
                         value={selectedSlide.image_position || 'none'}
                         onValueChange={async (value) => {
-                          await fetch(`/api/ai/image/${selectedSlide.id}/position`, {
+                          const token = await getTokenRef.current()
+                          await fetch(`${API_BASE_URL}/api/ai/image/${selectedSlide.id}/position`, {
                             method: 'PUT',
                             headers: { 
                               Authorization: `Bearer ${token}`,
@@ -2558,7 +2769,8 @@ export function Editor() {
                       onClick={async () => {
                         try {
                           toast({ title: 'Generating image...', description: 'This may take a moment' });
-                          const response = await fetch('/api/ai/image/generate-from-content', {
+                          const token = await getTokenRef.current()
+                          const response = await fetch(`${API_BASE_URL}/api/ai/image/generate-from-content`, {
                             method: 'POST',
                             headers: { 
                               Authorization: `Bearer ${token}`,
@@ -2646,7 +2858,6 @@ export function Editor() {
           isOpen={showAIWizard}
           onClose={() => setShowAIWizard(false)}
           deckId={deck.id}
-          token={token || ''}
           onSlidesGenerated={() => {
             // Refresh slides
             fetchSlides(deck.id)
@@ -2662,11 +2873,20 @@ export function Editor() {
         deckTitle={lesson?.title || deck?.title}
       />
 
+      {/* Video Upload Dialog */}
+      <VideoUploadDialog
+        isOpen={showVideoUpload}
+        onClose={() => setShowVideoUpload(false)}
+        type={videoUploadType}
+        onVideoUploaded={handleVideoUploaded}
+      />
+
       {/* Bottom Timeline */}
-      <div className="h-44 shrink-0">
+      <div className="h-52 shrink-0">
         <Timeline
           slides={slides}
           voiceovers={voiceovers}
+          timelineItems={timelineItems}
           selectedSlideId={selectedSlide?.id || null}
           currentTime={audioPlayback.currentTime}
           isPlaying={audioPlayback.isPlaying}
@@ -2675,6 +2895,9 @@ export function Editor() {
           onStop={handleTimelineStop}
           onSeek={handleTimelineSeek}
           onSlideSelect={handleTimelineSlideSelect}
+          onAddVideo={handleAddVideo}
+          onRemoveVideo={handleRemoveVideo}
+          onEditTrim={handleEditTrim}
         />
       </div>
     </div>

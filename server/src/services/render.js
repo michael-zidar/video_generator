@@ -245,6 +245,44 @@ function getVoiceoverPath(slideId) {
 }
 
 /**
+ * Get asset file path from asset record
+ */
+function getAssetPath(asset) {
+  if (!asset) return null;
+  const storagePath = asset.storage_path;
+  if (storagePath.startsWith('/')) {
+    return path.join(DATA_DIR, '..', storagePath);
+  }
+  return path.join(DATA_DIR, 'assets', storagePath);
+}
+
+/**
+ * Get timeline items (intro/outro/interstitials) for a deck
+ */
+function getTimelineItems(deckId) {
+  return all(`
+    SELECT ti.*, a.storage_path, a.mime_type
+    FROM timeline_items ti
+    JOIN assets a ON ti.asset_id = a.id
+    WHERE ti.deck_id = ?
+    ORDER BY ti.type, ti.position
+  `, [deckId]);
+}
+
+/**
+ * Get video slide info (if slide is a video slide)
+ */
+function getVideoSlideInfo(slide) {
+  if (!slide.video_asset_id) return null;
+  const asset = get('SELECT * FROM assets WHERE id = ?', [slide.video_asset_id]);
+  if (!asset) return null;
+  return {
+    path: getAssetPath(asset),
+    duration_ms: slide.duration_ms || 5000,
+  };
+}
+
+/**
  * Create a silent audio file of specified duration
  */
 async function createSilentAudio(durationMs, outputPath) {
@@ -270,65 +308,162 @@ async function createSilentAudio(durationMs, outputPath) {
 }
 
 /**
- * Compose final video from slide images and audio
+ * Compose final video from slides (images or videos), audio, and timeline items
+ * Supports:
+ * - Intro/outro videos from timeline_items
+ * - Video slides (slide with video_asset_id instead of image)
+ * - Interstitial videos between slides
  */
-async function composeVideo(slides, slideImages, audioFiles, settings, outputPath, renderId) {
+async function composeVideo(slides, slideMedia, audioFiles, timelineItems, settings, outputPath, renderId) {
   return new Promise((resolve, reject) => {
     const { width, height, videoBitrate, audioBitrate, fps, preset } = settings;
     
-    // Build FFmpeg filter complex for slides
-    // Each slide shows for its duration_ms
-    let filterInputs = '';
-    let filterComplex = '';
-    let audioFilterComplex = '';
+    // Separate timeline items by type
+    const introVideo = timelineItems.find(ti => ti.type === 'intro');
+    const outroVideo = timelineItems.find(ti => ti.type === 'outro');
+    const interstitials = timelineItems.filter(ti => ti.type === 'interstitial').sort((a, b) => a.position - b.position);
     
+    // Build list of segments to concatenate: intro, slides/interstitials, outro
+    const segments = [];
+    
+    // Add intro if exists
+    if (introVideo) {
+      segments.push({
+        type: 'video',
+        path: getAssetPath({ storage_path: introVideo.storage_path }),
+        duration_ms: introVideo.duration_ms || introVideo.end_time_ms - introVideo.start_time_ms || 5000,
+        start_time_ms: introVideo.start_time_ms || 0,
+        end_time_ms: introVideo.end_time_ms,
+      });
+    }
+    
+    // Add slides with interstitials
+    slides.forEach((slide, i) => {
+      // Check for interstitial before this slide (position = slide index)
+      const interstitial = interstitials.find(is => is.position === i);
+      if (interstitial) {
+        segments.push({
+          type: 'video',
+          path: getAssetPath({ storage_path: interstitial.storage_path }),
+          duration_ms: interstitial.duration_ms || 5000,
+          start_time_ms: interstitial.start_time_ms || 0,
+          end_time_ms: interstitial.end_time_ms,
+        });
+      }
+      
+      // Add the slide
+      const media = slideMedia[i];
+      if (media.type === 'video') {
+        segments.push({
+          type: 'video',
+          path: media.path,
+          duration_ms: slide.duration_ms || 5000,
+          audioPath: audioFiles[i],
+        });
+      } else {
+        segments.push({
+          type: 'image',
+          path: media.path,
+          duration_ms: slide.duration_ms || 5000,
+          audioPath: audioFiles[i],
+        });
+      }
+    });
+    
+    // Check for interstitial after last slide
+    const finalInterstitial = interstitials.find(is => is.position >= slides.length);
+    if (finalInterstitial) {
+      segments.push({
+        type: 'video',
+        path: getAssetPath({ storage_path: finalInterstitial.storage_path }),
+        duration_ms: finalInterstitial.duration_ms || 5000,
+        start_time_ms: finalInterstitial.start_time_ms || 0,
+        end_time_ms: finalInterstitial.end_time_ms,
+      });
+    }
+    
+    // Add outro if exists
+    if (outroVideo) {
+      segments.push({
+        type: 'video',
+        path: getAssetPath({ storage_path: outroVideo.storage_path }),
+        duration_ms: outroVideo.duration_ms || outroVideo.end_time_ms - outroVideo.start_time_ms || 5000,
+        start_time_ms: outroVideo.start_time_ms || 0,
+        end_time_ms: outroVideo.end_time_ms,
+      });
+    }
+    
+    // Build FFmpeg command
     const inputArgs = [];
+    const videoFilters = [];
+    const audioFilterParts = [];
     let inputIndex = 0;
     
-    // Add slide images as inputs with duration
-    slides.forEach((slide, i) => {
-      const durationSec = (slide.duration_ms || 5000) / 1000;
-      inputArgs.push('-loop', '1', '-t', durationSec.toString(), '-i', slideImages[i]);
-      inputIndex++;
-    });
-    
-    // Add audio files as inputs
-    const audioInputStart = inputIndex;
-    audioFiles.forEach((audioPath, i) => {
-      if (audioPath) {
-        inputArgs.push('-i', audioPath);
+    segments.forEach((segment, i) => {
+      if (segment.type === 'image') {
+        // Image input with duration
+        const durationSec = (segment.duration_ms || 5000) / 1000;
+        inputArgs.push('-loop', '1', '-t', durationSec.toString(), '-i', segment.path);
+        videoFilters.push(`[${inputIndex}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps}[v${i}]`);
         inputIndex++;
-      }
-    });
-    
-    // Build video filter: concatenate all slides
-    const videoFilters = [];
-    slides.forEach((slide, i) => {
-      videoFilters.push(`[${i}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1[v${i}]`);
-    });
-    
-    const concatInputs = slides.map((_, i) => `[v${i}]`).join('');
-    videoFilters.push(`${concatInputs}concat=n=${slides.length}:v=1:a=0[vout]`);
-    
-    // Build audio filter: concatenate all audio (or silent tracks)
-    // We need to handle slides without audio by inserting silence
-    const audioFilterParts = [];
-    let audioIdx = audioInputStart;
-    slides.forEach((slide, i) => {
-      if (audioFiles[i]) {
-        audioFilterParts.push(`[${audioIdx}:a]aresample=44100[a${i}]`);
-        audioIdx++;
+        
+        // Audio for this segment
+        if (segment.audioPath) {
+          inputArgs.push('-i', segment.audioPath);
+          audioFilterParts.push(`[${inputIndex}:a]aresample=44100[a${i}]`);
+          inputIndex++;
+        } else {
+          const durationSec = (segment.duration_ms || 5000) / 1000;
+          audioFilterParts.push(`anullsrc=r=44100:cl=stereo,atrim=0:${durationSec}[a${i}]`);
+        }
       } else {
-        // Generate silence for this slide
-        const durationSec = (slide.duration_ms || 5000) / 1000;
-        audioFilterParts.push(`anullsrc=r=44100:cl=stereo,atrim=0:${durationSec}[a${i}]`);
+        // Video input
+        inputArgs.push('-i', segment.path);
+        const videoIdx = inputIndex;
+        inputIndex++;
+        
+        // Trim video if needed
+        let trimFilter = '';
+        if (segment.start_time_ms || segment.end_time_ms) {
+          const startSec = (segment.start_time_ms || 0) / 1000;
+          const endSec = segment.end_time_ms ? segment.end_time_ms / 1000 : null;
+          if (endSec) {
+            trimFilter = `trim=${startSec}:${endSec},setpts=PTS-STARTPTS,`;
+          } else {
+            trimFilter = `trim=start=${startSec},setpts=PTS-STARTPTS,`;
+          }
+        }
+        
+        videoFilters.push(`[${videoIdx}:v]${trimFilter}scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps}[v${i}]`);
+        
+        // Audio from video (trim if needed) or slide voiceover if provided
+        if (segment.audioPath) {
+          // Use voiceover audio instead of video audio
+          inputArgs.push('-i', segment.audioPath);
+          audioFilterParts.push(`[${inputIndex}:a]aresample=44100[a${i}]`);
+          inputIndex++;
+        } else if (segment.start_time_ms || segment.end_time_ms) {
+          const startSec = (segment.start_time_ms || 0) / 1000;
+          const endSec = segment.end_time_ms ? segment.end_time_ms / 1000 : null;
+          if (endSec) {
+            audioFilterParts.push(`[${videoIdx}:a]atrim=${startSec}:${endSec},asetpts=PTS-STARTPTS,aresample=44100[a${i}]`);
+          } else {
+            audioFilterParts.push(`[${videoIdx}:a]atrim=start=${startSec},asetpts=PTS-STARTPTS,aresample=44100[a${i}]`);
+          }
+        } else {
+          audioFilterParts.push(`[${videoIdx}:a]aresample=44100[a${i}]`);
+        }
       }
     });
     
-    const audioConcat = slides.map((_, i) => `[a${i}]`).join('');
-    audioFilterParts.push(`${audioConcat}concat=n=${slides.length}:v=0:a=1[aout]`);
+    // Concatenate all segments
+    const videoConcat = segments.map((_, i) => `[v${i}]`).join('');
+    const audioConcat = segments.map((_, i) => `[a${i}]`).join('');
     
-    filterComplex = [...videoFilters, ...audioFilterParts].join(';');
+    videoFilters.push(`${videoConcat}concat=n=${segments.length}:v=1:a=0[vout]`);
+    audioFilterParts.push(`${audioConcat}concat=n=${segments.length}:v=0:a=1[aout]`);
+    
+    const filterComplex = [...videoFilters, ...audioFilterParts].join(';');
     
     const ffmpegArgs = [
       '-y',
@@ -364,7 +499,7 @@ async function composeVideo(slides, slideImages, audioFiles, settings, outputPat
         const currentMs = (hours * 3600 + minutes * 60 + seconds) * 1000;
         
         // Calculate total duration
-        const totalMs = slides.reduce((sum, s) => sum + (s.duration_ms || 5000), 0);
+        const totalMs = segments.reduce((sum, s) => sum + (s.duration_ms || 5000), 0);
         const percent = Math.min(100, Math.round((currentMs / totalMs) * 100));
         
         renderEvents.emit('progress', {
@@ -465,7 +600,10 @@ async function renderAsync(renderId, deck, slides, settings) {
       percent: 0,
     });
     
-    // Launch Puppeteer
+    // Get timeline items (intro/outro/interstitials)
+    const timelineItems = getTimelineItems(deck.id);
+    
+    // Launch Puppeteer (needed for image slides)
     renderEvents.emit('progress', {
       renderId,
       step: 'browser',
@@ -480,29 +618,44 @@ async function renderAsync(renderId, deck, slides, settings) {
     
     activeRenders.set(renderId, { browser, type: 'puppeteer' });
     
-    // Render each slide to image
-    const slideImages = [];
+    // Prepare slide media (images or video references) and audio
+    const slideMedia = [];
     const audioFiles = [];
     
     for (let i = 0; i < slides.length; i++) {
       const slide = slides[i];
-      const imagePath = path.join(renderDir, `slide_${i}.png`);
       
       const percent = 10 + Math.round((i / slides.length) * 55); // 10-65% for slides
       renderEvents.emit('progress', {
         renderId,
         step: 'rendering_slides',
-        message: `Rendering slide ${i + 1} of ${slides.length}...`,
+        message: `Processing slide ${i + 1} of ${slides.length}...`,
         percent,
       });
       
       run(
         `UPDATE renders SET progress = ?, updated_at = datetime('now') WHERE id = ?`,
-        [JSON.stringify({ percent, current_step: `Rendering slide ${i + 1}/${slides.length}` }), renderId]
+        [JSON.stringify({ percent, current_step: `Processing slide ${i + 1}/${slides.length}` }), renderId]
       );
       
-      await renderSlideToImage(browser, slide, width, height, imagePath);
-      slideImages.push(imagePath);
+      // Check if this is a video slide
+      const videoInfo = getVideoSlideInfo(slide);
+      
+      if (videoInfo) {
+        // Video slide - just reference the video path
+        slideMedia.push({
+          type: 'video',
+          path: videoInfo.path,
+        });
+      } else {
+        // Regular slide - render to image
+        const imagePath = path.join(renderDir, `slide_${i}.png`);
+        await renderSlideToImage(browser, slide, width, height, imagePath);
+        slideMedia.push({
+          type: 'image',
+          path: imagePath,
+        });
+      }
       
       // Get audio for this slide
       const audioPath = getVoiceoverPath(slide.id);
@@ -528,7 +681,7 @@ async function renderAsync(renderId, deck, slides, settings) {
     const outputFilename = `video_${renderId}_${Date.now()}.mp4`;
     const outputPath = path.join(RENDERS_DIR, outputFilename);
     
-    await composeVideo(slides, slideImages, audioFiles, settings, outputPath, renderId);
+    await composeVideo(slides, slideMedia, audioFiles, timelineItems, settings, outputPath, renderId);
     
     // Finalize
     renderEvents.emit('progress', {

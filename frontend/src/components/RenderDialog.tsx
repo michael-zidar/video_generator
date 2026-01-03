@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useAuth } from '@clerk/clerk-react'
 import {
   Dialog,
   DialogContent,
@@ -20,6 +21,8 @@ import {
 } from 'lucide-react'
 import { useRenderProgress } from '@/hooks/useRenderProgress'
 import { toast } from '@/hooks/use-toast'
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface RenderDialogProps {
   open: boolean
@@ -58,6 +61,10 @@ export function RenderDialog({
   deckId,
   deckTitle,
 }: RenderDialogProps) {
+  const { getToken } = useAuth()
+  const getTokenRef = useRef(getToken)
+  getTokenRef.current = getToken
+  
   const [quality, setQuality] = useState<RenderQuality>('preview')
   const [renderId, setRenderId] = useState<number | null>(null)
   const [isStarting, setIsStarting] = useState(false)
@@ -92,11 +99,12 @@ export function RenderDialog({
 
     setIsStarting(true)
     try {
-      const response = await fetch('/api/renders', {
+      const token = await getTokenRef.current()
+      const response = await fetch(`${API_BASE_URL}/api/renders`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
           deck_id: deckId,
@@ -136,10 +144,11 @@ export function RenderDialog({
     if (!renderId) return
 
     try {
-      const response = await fetch(`/api/renders/${renderId}/cancel`, {
+      const token = await getTokenRef.current()
+      const response = await fetch(`${API_BASE_URL}/api/renders/${renderId}/cancel`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${token}`,
         },
       })
 
@@ -167,7 +176,7 @@ export function RenderDialog({
   // Download rendered video
   const handleDownload = useCallback(() => {
     if (!renderId) return
-    window.open(`/api/renders/${renderId}/download`, '_blank')
+    window.open(`${API_BASE_URL}/api/renders/${renderId}/download`, '_blank')
   }, [renderId])
 
   // Preview video in new tab

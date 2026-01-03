@@ -3,6 +3,7 @@ import { TimeRuler } from './TimeRuler'
 import { Playhead } from './Playhead'
 import { SlidesTrack } from './SlidesTrack'
 import { AudioTrack } from './AudioTrack'
+import { VideoTrack, TimelineItem } from './VideoTrack'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { 
@@ -24,6 +25,7 @@ interface Slide {
 interface TimelineProps {
   slides: Slide[]
   voiceovers: Map<number, { audio_url: string; duration_ms: number }>
+  timelineItems: TimelineItem[]
   selectedSlideId: number | null
   currentTime: number
   isPlaying: boolean
@@ -32,11 +34,15 @@ interface TimelineProps {
   onStop: () => void
   onSeek: (timeMs: number) => void
   onSlideSelect: (slideId: number) => void
+  onAddVideo: (type: 'intro' | 'outro' | 'interstitial', position?: number) => void
+  onRemoveVideo: (id: number) => void
+  onEditTrim: (item: TimelineItem) => void
 }
 
 export function Timeline({
   slides,
   voiceovers,
+  timelineItems,
   selectedSlideId,
   currentTime,
   isPlaying,
@@ -45,12 +51,23 @@ export function Timeline({
   onStop,
   onSeek,
   onSlideSelect,
+  onAddVideo,
+  onRemoveVideo,
+  onEditTrim,
 }: TimelineProps) {
   const [pixelsPerSecond, setPixelsPerSecond] = useState(50)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   
-  // Calculate total duration
-  const totalDuration = slides.reduce((sum, s) => sum + (s.duration_ms || 5000), 0)
+  // Calculate total duration (slides only - video track handles its own width)
+  const slideDuration = slides.reduce((sum, s) => sum + (s.duration_ms || 5000), 0)
+  
+  // Include intro/outro in total duration
+  const introItem = timelineItems.find(i => i.type === 'intro')
+  const outroItem = timelineItems.find(i => i.type === 'outro')
+  const introDuration = introItem?.duration_ms || 0
+  const outroDuration = outroItem?.duration_ms || 0
+  
+  const totalDuration = introDuration + slideDuration + outroDuration
   const totalWidth = (totalDuration / 1000) * pixelsPerSecond
 
   // Format time display
@@ -97,8 +114,28 @@ export function Timeline({
     setPixelsPerSecond(Math.max(10, pixelsPerSecond - 20))
   }
 
-  const trackHeight = 16 + 12 + 16 // ruler + slides track + audio track heights approximation
-  const actualTrackHeight = 6 + 64 + 48 // In pixels: ruler border + slides track + audio track
+  // Height calculations for tracks
+  const rulerHeight = 24
+  const videoTrackHeight = 48   // h-12
+  const slidesTrackHeight = 64  // h-16
+  const audioTrackHeight = 48   // h-12
+  const totalTrackHeight = rulerHeight + videoTrackHeight + slidesTrackHeight + audioTrackHeight
+
+  // Handle click on the timeline background to seek
+  const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement
+    // Only seek if clicking on the background, not on interactive elements
+    if (target.closest('button') || target.closest('[data-no-seek]')) return
+    
+    const container = e.currentTarget
+    const rect = container.getBoundingClientRect()
+    const x = e.clientX - rect.left - 80 // Account for the 80px label width
+    if (x < 0) return // Clicked on the label area
+    
+    const timeMs = (x / pixelsPerSecond) * 1000
+    const clampedTime = Math.max(0, Math.min(timeMs, totalDuration))
+    onSeek(clampedTime)
+  }
 
   return (
     <div className="h-full flex flex-col bg-muted/30 border-t">
@@ -180,16 +217,30 @@ export function Timeline({
       {/* Timeline tracks */}
       <div 
         ref={scrollContainerRef}
-        className="flex-1 overflow-x-auto overflow-y-hidden relative"
+        className="flex-1 overflow-x-auto overflow-y-auto relative cursor-pointer"
+        onClick={handleTimelineClick}
       >
-        <div style={{ minWidth: `${totalWidth + 100}px` }} className="relative">
+        <div 
+          style={{ minWidth: `${totalWidth + 100}px`, minHeight: `${totalTrackHeight}px` }} 
+          className="relative"
+        >
           {/* Time ruler */}
-          <div className="ml-20">
+          <div className="ml-20 h-6 border-b border-border bg-muted/20">
             <TimeRuler
               duration={totalDuration}
               pixelsPerSecond={pixelsPerSecond}
             />
           </div>
+          
+          {/* Video track */}
+          <VideoTrack
+            timelineItems={timelineItems}
+            totalSlideDuration={slideDuration}
+            pixelsPerSecond={pixelsPerSecond}
+            onAddVideo={onAddVideo}
+            onRemoveVideo={onRemoveVideo}
+            onEditTrim={onEditTrim}
+          />
           
           {/* Slides track */}
           <SlidesTrack
@@ -209,13 +260,13 @@ export function Timeline({
             onSeek={onSeek}
           />
           
-          {/* Playhead */}
-          <div className="absolute top-0 left-20" style={{ height: `${actualTrackHeight}px` }}>
+          {/* Playhead - spans all tracks */}
+          <div className="absolute top-0 left-20 pointer-events-auto" style={{ height: `${totalTrackHeight}px` }}>
             <Playhead
               currentTime={currentTime}
               duration={totalDuration}
               pixelsPerSecond={pixelsPerSecond}
-              height={actualTrackHeight}
+              height={totalTrackHeight}
               onSeek={onSeek}
             />
           </div>
@@ -223,7 +274,7 @@ export function Timeline({
         
         {/* Empty state */}
         {slides.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm">
+          <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm pointer-events-none">
             No slides yet. Add a slide to get started.
           </div>
         )}

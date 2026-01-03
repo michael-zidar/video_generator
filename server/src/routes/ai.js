@@ -1,11 +1,12 @@
 import express from 'express';
 import { get, all, run, insert, saveDatabase } from '../db.js';
-import { 
-  generateOutline, 
-  generateSlideContent, 
+import {
+  generateOutline,
+  generateSlideContent,
   generateScript,
+  generateEnhancedSpeakerNotes,
   generateSlidesFromOutline,
-  getAIStatus 
+  getAIStatus
 } from '../services/ai.js';
 import {
   getVoices,
@@ -166,6 +167,69 @@ router.post('/scripts/generate', async (req, res) => {
     });
   } catch (error) {
     console.error('Script generation error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/ai/scripts/generate-enhanced - Generate enhanced speaker notes with markdown
+router.post('/scripts/generate-enhanced', async (req, res) => {
+  try {
+    const {
+      slide_id,
+      target_duration = 30,
+      tone = 'professional',
+      context = '',
+      slide_index,
+      total_slides
+    } = req.body;
+
+    if (!slide_id) {
+      return res.status(400).json({ error: 'slide_id is required' });
+    }
+
+    // Get slide
+    const slide = get('SELECT * FROM slides WHERE id = ?', [slide_id]);
+    if (!slide) {
+      return res.status(404).json({ error: 'Slide not found' });
+    }
+
+    // Get slide position if not provided
+    let slideIndex = slide_index;
+    let totalSlides = total_slides;
+
+    if (slideIndex === undefined) {
+      const deck = get('SELECT * FROM decks WHERE id = ?', [slide.deck_id]);
+      if (deck) {
+        const allSlides = all('SELECT id, position FROM slides WHERE deck_id = ? ORDER BY position', [slide.deck_id]);
+        totalSlides = allSlides.length;
+        slideIndex = allSlides.findIndex(s => s.id === slide.id);
+      }
+    }
+
+    // Parse body if needed
+    const body = typeof slide.body === 'string' ? JSON.parse(slide.body) : slide.body;
+    const slideObj = { ...slide, body };
+
+    // Generate enhanced speaker notes
+    const notes = await generateEnhancedSpeakerNotes(slideObj, {
+      targetDurationSec: target_duration,
+      tone,
+      context,
+      slideIndex: slideIndex || 0,
+      totalSlides: totalSlides || 1,
+    });
+
+    // Update slide with new notes
+    run('UPDATE slides SET speaker_notes = ?, updated_at = datetime("now") WHERE id = ?', [notes, slide_id]);
+
+    res.json({
+      slide_id,
+      speaker_notes: notes,
+      target_duration,
+      markdown: true,
+    });
+  } catch (error) {
+    console.error('Enhanced script generation error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -387,11 +451,11 @@ router.post('/voiceover/generate-batch', async (req, res) => {
                SET provider = ?, voice_profile_id = ?, script_text = ?, 
                    audio_asset_id = ?, duration_ms = ?, status = ?, updated_at = datetime('now')
                WHERE slide_id = ?`,
-            ['elevenlabs', voice_id, slide.speaker_notes, null, result.duration_ms, 'succeeded', slideId]);
+            ['elevenlabs', voice_id, slide.speaker_notes, result.relativePath, result.duration_ms, 'succeeded', slideId]);
         } else {
           insert(`INSERT INTO voiceovers (slide_id, provider, voice_profile_id, script_text, audio_asset_id, duration_ms, status, created_at, updated_at)
                   VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-            [slideId, 'elevenlabs', voice_id, slide.speaker_notes, null, result.duration_ms, 'succeeded']);
+            [slideId, 'elevenlabs', voice_id, slide.speaker_notes, result.relativePath, result.duration_ms, 'succeeded']);
         }
 
         // Update slide duration

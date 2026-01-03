@@ -44,6 +44,11 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}): UseAudi
   const [duration, setDuration] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
 
+  // Use refs for values accessed in animation frame to avoid stale closures
+  const isPlayingRef = useRef(false)
+  const durationRef = useRef(0)
+  const currentTimeRef = useRef(0)
+
   // Audio buffer cache: slideId -> AudioBuffer
   const bufferCache = useRef<Map<number, AudioBuffer>>(new Map())
   
@@ -65,6 +70,19 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}): UseAudi
   
   // Current slide tracking
   const currentSlideIdRef = useRef<number | null>(null)
+
+  // Keep refs in sync with state
+  useEffect(() => {
+    isPlayingRef.current = isPlaying
+  }, [isPlaying])
+
+  useEffect(() => {
+    durationRef.current = duration
+  }, [duration])
+
+  useEffect(() => {
+    currentTimeRef.current = currentTime
+  }, [currentTime])
 
   // Fetch and decode audio file
   const fetchAudioBuffer = useCallback(async (url: string): Promise<AudioBuffer> => {
@@ -131,24 +149,27 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}): UseAudi
     return null
   }, [])
 
-  // Time update loop
+  // Time update loop - uses refs to avoid stale closures
   const updateTime = useCallback(() => {
-    if (!isPlaying) return
+    if (!isPlayingRef.current) return
 
     const audioContext = getAudioContext()
     const elapsed = (audioContext.currentTime - playbackStartTimeRef.current) * 1000
     const newTime = playbackOffsetRef.current + elapsed
 
-    if (newTime >= duration) {
+    if (newTime >= durationRef.current) {
       // Playback ended
+      isPlayingRef.current = false
       setIsPlaying(false)
-      setCurrentTime(duration)
+      setCurrentTime(durationRef.current)
+      currentTimeRef.current = durationRef.current
       stopAllSources()
       onPlaybackEnd?.()
       return
     }
 
     setCurrentTime(newTime)
+    currentTimeRef.current = newTime
     onTimeUpdate?.(newTime)
 
     // Check for slide change
@@ -159,7 +180,7 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}): UseAudi
     }
 
     animationFrameRef.current = requestAnimationFrame(updateTime)
-  }, [isPlaying, duration, onTimeUpdate, onSlideChange, onPlaybackEnd, getSlideAtTime, stopAllSources])
+  }, [onTimeUpdate, onSlideChange, onPlaybackEnd, getSlideAtTime, stopAllSources])
 
   // Start playback from a specific time
   const playFromTime = useCallback((timeMs: number) => {
@@ -216,6 +237,8 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}): UseAudi
     }
 
     setCurrentTime(timeMs)
+    currentTimeRef.current = timeMs
+    isPlayingRef.current = true
     setIsPlaying(true)
 
     // Start the time update loop
@@ -227,31 +250,35 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}): UseAudi
 
   // Play from current position
   const play = useCallback(() => {
-    playFromTime(currentTime)
-  }, [currentTime, playFromTime])
+    playFromTime(currentTimeRef.current)
+  }, [playFromTime])
 
   // Pause playback
   const pause = useCallback(() => {
-    if (!isPlaying) return
+    if (!isPlayingRef.current) return
 
     const audioContext = getAudioContext()
     const elapsed = (audioContext.currentTime - playbackStartTimeRef.current) * 1000
     const pausedTime = playbackOffsetRef.current + elapsed
 
     stopAllSources()
+    isPlayingRef.current = false
     setIsPlaying(false)
+    currentTimeRef.current = pausedTime
     setCurrentTime(pausedTime)
 
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current)
       animationFrameRef.current = null
     }
-  }, [isPlaying, stopAllSources])
+  }, [stopAllSources])
 
   // Stop playback and reset to beginning
   const stop = useCallback(() => {
     stopAllSources()
+    isPlayingRef.current = false
     setIsPlaying(false)
+    currentTimeRef.current = 0
     setCurrentTime(0)
     playbackOffsetRef.current = 0
 
@@ -263,13 +290,14 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}): UseAudi
 
   // Seek to a specific time
   const seekTo = useCallback((timeMs: number) => {
-    const clampedTime = Math.max(0, Math.min(timeMs, duration))
+    const clampedTime = Math.max(0, Math.min(timeMs, durationRef.current))
     
-    if (isPlaying) {
+    if (isPlayingRef.current) {
       // If playing, restart from new position
       playFromTime(clampedTime)
     } else {
       // If paused, just update the time
+      currentTimeRef.current = clampedTime
       setCurrentTime(clampedTime)
       playbackOffsetRef.current = clampedTime
     }
@@ -280,7 +308,7 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}): UseAudi
       currentSlideIdRef.current = slideId
       onSlideChange?.(slideId)
     }
-  }, [duration, isPlaying, playFromTime, getSlideAtTime, onSlideChange])
+  }, [playFromTime, getSlideAtTime, onSlideChange])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -292,12 +320,8 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}): UseAudi
     }
   }, [stopAllSources])
 
-  // Update time loop when playing state changes
-  useEffect(() => {
-    if (isPlaying && !animationFrameRef.current) {
-      animationFrameRef.current = requestAnimationFrame(updateTime)
-    }
-  }, [isPlaying, updateTime])
+  // This effect is no longer needed as we start the animation frame directly in playFromTime
+  // and the ref-based approach doesn't require re-triggering based on state changes
 
   return {
     isPlaying,

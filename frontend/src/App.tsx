@@ -1,26 +1,29 @@
 import { useEffect } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { useAuthStore } from '@/store/auth'
+import { SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react'
 import { useThemeStore, applyTheme } from '@/store/theme'
 import { Toaster } from '@/components/ui/toaster'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Login } from '@/pages/Login'
+import { SignUpPage } from '@/pages/SignUp'
 import { Dashboard } from '@/pages/Dashboard'
 import { CourseDetail } from '@/pages/CourseDetail'
 import { Editor } from '@/pages/Editor'
 import { NotFound } from '@/pages/NotFound'
+import { Settings } from '@/pages/Settings'
 
 const queryClient = new QueryClient()
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
-
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />
-  }
-
-  return <>{children}</>
+  return (
+    <>
+      <SignedIn>{children}</SignedIn>
+      <SignedOut>
+        <RedirectToSignIn />
+      </SignedOut>
+    </>
+  )
 }
 
 function App() {
@@ -47,6 +50,7 @@ function App() {
         <Router>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/sign-up" element={<SignUpPage />} />
             <Route
               path="/dashboard"
               element={
@@ -68,6 +72,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Editor />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <Settings />
                 </ProtectedRoute>
               }
             />

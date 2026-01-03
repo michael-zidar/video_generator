@@ -213,6 +213,31 @@ export async function initDatabase() {
     )
   `);
 
+  // Timeline items table for intro/outro/interstitial videos
+  db.run(`
+    CREATE TABLE IF NOT EXISTS timeline_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      deck_id INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      asset_id INTEGER NOT NULL,
+      position INTEGER DEFAULT 0,
+      start_time_ms INTEGER DEFAULT 0,
+      end_time_ms INTEGER,
+      duration_ms INTEGER,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (deck_id) REFERENCES decks(id) ON DELETE CASCADE,
+      FOREIGN KEY (asset_id) REFERENCES assets(id)
+    )
+  `);
+
+  // Migration: Add video_asset_id to slides for video slides
+  try {
+    db.run(`ALTER TABLE slides ADD COLUMN video_asset_id INTEGER`);
+  } catch (e) {
+    // Column already exists
+  }
+
   // Create demo user if not exists
   const demoUser = db.exec("SELECT id FROM users WHERE email = 'demo@example.com'");
   if (demoUser.length === 0 || demoUser[0].values.length === 0) {

@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useAuthStore } from '@/store/auth'
+import { useAuth } from '@clerk/clerk-react'
 import { Button } from '@/components/ui/button'
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -139,7 +141,7 @@ function SortableLesson({ lesson, index, onNavigate, onEdit, onDuplicate, onDele
 export function CourseDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { token } = useAuthStore()
+  const { getToken } = useAuth()
 
   const [course, setCourse] = useState<Course | null>(null)
   const [lessons, setLessons] = useState<Lesson[]>([])
@@ -168,14 +170,10 @@ export function CourseDetail() {
     })
   )
 
-  useEffect(() => {
-    fetchCourse()
-    fetchLessons()
-  }, [id])
-
-  const fetchCourse = async () => {
+  const fetchCourse = useCallback(async () => {
     try {
-      const response = await fetch(`/api/courses/${id}`, {
+      const token = await getToken()
+      const response = await fetch(`${API_BASE_URL}/api/courses/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (response.ok) {
@@ -191,11 +189,12 @@ export function CourseDetail() {
         variant: 'destructive',
       })
     }
-  }
+  }, [id, getToken])
 
-  const fetchLessons = async () => {
+  const fetchLessons = useCallback(async () => {
     try {
-      const response = await fetch(`/api/courses/${id}/lessons`, {
+      const token = await getToken()
+      const response = await fetch(`${API_BASE_URL}/api/courses/${id}/lessons`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (response.ok) {
@@ -211,14 +210,20 @@ export function CourseDetail() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [id, getToken])
+
+  useEffect(() => {
+    fetchCourse()
+    fetchLessons()
+  }, [fetchCourse, fetchLessons])
 
   const handleCreateLesson = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsCreating(true)
 
     try {
-      const response = await fetch(`/api/courses/${id}/lessons`, {
+      const token = await getToken()
+      const response = await fetch(`${API_BASE_URL}/api/courses/${id}/lessons`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -256,7 +261,8 @@ export function CourseDetail() {
     e.preventDefault()
 
     try {
-      const response = await fetch(`/api/courses/${id}`, {
+      const token = await getToken()
+      const response = await fetch(`${API_BASE_URL}/api/courses/${id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -298,7 +304,8 @@ export function CourseDetail() {
     if (!editingLesson) return
 
     try {
-      const response = await fetch(`/api/lessons/${editingLesson.id}`, {
+      const token = await getToken()
+      const response = await fetch(`${API_BASE_URL}/api/lessons/${editingLesson.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -331,7 +338,8 @@ export function CourseDetail() {
 
   const handleDuplicateLesson = async (lessonId: number) => {
     try {
-      const response = await fetch(`/api/lessons/${lessonId}/duplicate`, {
+      const token = await getToken()
+      const response = await fetch(`${API_BASE_URL}/api/lessons/${lessonId}/duplicate`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -359,7 +367,8 @@ export function CourseDetail() {
     }
 
     try {
-      const response = await fetch(`/api/lessons/${lessonId}`, {
+      const token = await getToken()
+      const response = await fetch(`${API_BASE_URL}/api/lessons/${lessonId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -396,7 +405,8 @@ export function CourseDetail() {
 
       // Send reorder request to backend
       try {
-        const response = await fetch('/api/lessons/reorder', {
+        const token = await getToken()
+        const response = await fetch(`${API_BASE_URL}/api/lessons/reorder`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

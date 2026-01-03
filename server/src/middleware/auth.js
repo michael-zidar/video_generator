@@ -1,30 +1,36 @@
-import { get } from '../db.js';
+import { ClerkExpressRequireAuth } from '@clerk/clerk-sdk-node';
 
-// Simple token-based auth middleware
-// In production, use proper JWT or session management
-export function authMiddleware(req, res, next) {
-  const authHeader = req.headers.authorization;
+// Clerk authentication middleware that also extracts user info
+export const authMiddleware = (req, res, next) => {
+  ClerkExpressRequireAuth({
+    onError: (error) => {
+      console.error('Auth error:', error);
+      return {
+        status: 401,
+        message: 'Authentication required'
+      };
+    }
+  })(req, res, (err) => {
+    if (err) {
+      return next(err);
+    }
+    
+    // Extract user info from Clerk auth
+    if (req.auth && req.auth.userId) {
+      req.user = {
+        id: req.auth.userId,
+      };
+    }
+    next();
+  });
+};
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Authentication required' });
+// Optional: Standalone extract user middleware if needed
+export function extractUserMiddleware(req, res, next) {
+  if (req.auth && req.auth.userId) {
+    req.user = {
+      id: req.auth.userId,
+    };
   }
-
-  const token = authHeader.substring(7);
-
-  // For simplicity, token is just the user ID
-  // In production, use proper JWT verification
-  const userId = parseInt(token, 10);
-
-  if (isNaN(userId)) {
-    return res.status(401).json({ error: 'Invalid token' });
-  }
-
-  const user = get('SELECT id, email, name, avatar_url FROM users WHERE id = ?', [userId]);
-
-  if (!user) {
-    return res.status(401).json({ error: 'User not found' });
-  }
-
-  req.user = user;
   next();
 }

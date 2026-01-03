@@ -6,8 +6,6 @@ interface AudioWaveformProps {
   height: number
   isPlaying?: boolean
   progress?: number // 0 to 1
-  primaryColor?: string
-  secondaryColor?: string
   onClick?: (progress: number) => void
 }
 
@@ -17,8 +15,6 @@ export function AudioWaveform({
   height,
   isPlaying = false,
   progress = 0,
-  primaryColor = 'hsl(var(--primary))',
-  secondaryColor = 'hsl(var(--muted-foreground) / 0.3)',
   onClick,
 }: AudioWaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -92,6 +88,10 @@ export function AudioWaveform({
     // Clear canvas
     ctx.clearRect(0, 0, width, height)
     
+    // Draw background for the waveform area
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.5)' // Dark semi-transparent background
+    ctx.fillRect(0, 0, width, height)
+    
     const barWidth = 2
     const barGap = 1
     const centerY = height / 2
@@ -99,10 +99,16 @@ export function AudioWaveform({
     
     peaks.forEach((peak, i) => {
       const x = i * (barWidth + barGap)
-      const barHeight = peak * (height - 4)
+      const barHeight = Math.max(peak * (height - 8), 2) // Minimum bar height of 2px
       
-      // Choose color based on playback progress
-      ctx.fillStyle = x < progressX ? primaryColor : secondaryColor
+      // Choose color based on playback progress - use bright visible colors
+      if (x < progressX) {
+        // Played portion - bright blue/cyan
+        ctx.fillStyle = '#60a5fa' // blue-400
+      } else {
+        // Unplayed portion - muted gray-blue
+        ctx.fillStyle = 'rgba(148, 163, 184, 0.6)' // slate-400 with opacity
+      }
       
       // Draw bar (centered)
       ctx.fillRect(
@@ -112,7 +118,7 @@ export function AudioWaveform({
         barHeight
       )
     })
-  }, [peaks, width, height, progress, primaryColor, secondaryColor])
+  }, [peaks, width, height, progress])
 
   const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!onClick || !canvasRef.current) return
@@ -127,15 +133,18 @@ export function AudioWaveform({
   if (isLoading) {
     return (
       <div 
-        className="flex items-center justify-center bg-muted/30 rounded animate-pulse"
-        style={{ width, height }}
+        className="flex items-center justify-center rounded animate-pulse"
+        style={{ width, height, background: 'rgba(30, 41, 59, 0.5)' }}
       >
-        <div className="flex gap-0.5">
-          {[...Array(20)].map((_, i) => (
+        <div className="flex items-center gap-0.5">
+          {[...Array(Math.min(Math.floor(width / 4), 40))].map((_, i) => (
             <div
               key={i}
-              className="w-0.5 bg-muted-foreground/20 rounded"
-              style={{ height: `${20 + Math.random() * 20}px` }}
+              className="w-0.5 rounded"
+              style={{ 
+                height: `${4 + Math.sin(i * 0.5) * 12 + Math.random() * 8}px`,
+                background: 'rgba(148, 163, 184, 0.4)'
+              }}
             />
           ))}
         </div>
@@ -146,8 +155,8 @@ export function AudioWaveform({
   return (
     <canvas
       ref={canvasRef}
-      style={{ width, height }}
-      className={`cursor-pointer ${isPlaying ? 'opacity-100' : 'opacity-80'}`}
+      style={{ width, height, borderRadius: '4px' }}
+      className={`cursor-pointer ${isPlaying ? 'opacity-100' : 'opacity-90'}`}
       onClick={handleClick}
     />
   )

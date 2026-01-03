@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuthStore } from '@/store/auth'
+import { useAuth, useUser, useClerk } from '@clerk/clerk-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -8,9 +8,11 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from '@/hooks/use-toast'
-import { Plus, Search, Video, BookOpen, FolderOpen, Pin, Archive, MoreVertical, ChevronRight } from 'lucide-react'
+import { Plus, Search, Video, BookOpen, FolderOpen, Pin, Archive, MoreVertical, ChevronRight, Settings } from 'lucide-react'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { ThemeToggle } from '@/components/ui/theme-toggle'
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface Course {
   id: number
@@ -32,15 +34,14 @@ export function Dashboard() {
   const [newCourseDescription, setNewCourseDescription] = useState('')
   const [isCreating, setIsCreating] = useState(false)
   const navigate = useNavigate()
-  const { user, logout, token } = useAuthStore()
+  const { getToken } = useAuth()
+  const { user } = useUser()
+  const { signOut } = useClerk()
 
-  useEffect(() => {
-    fetchCourses()
-  }, [])
-
-  const fetchCourses = async () => {
+  const fetchCourses = useCallback(async () => {
     try {
-      const response = await fetch('/api/courses', {
+      const token = await getToken()
+      const response = await fetch(`${API_BASE_URL}/api/courses`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (response.ok) {
@@ -56,14 +57,19 @@ export function Dashboard() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [getToken])
+
+  useEffect(() => {
+    fetchCourses()
+  }, [fetchCourses])
 
   const handleCreateCourse = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsCreating(true)
 
     try {
-      const response = await fetch('/api/courses', {
+      const token = await getToken()
+      const response = await fetch(`${API_BASE_URL}/api/courses`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -99,7 +105,8 @@ export function Dashboard() {
 
   const handlePinCourse = async (courseId: number, isPinned: boolean) => {
     try {
-      const response = await fetch(`/api/courses/${courseId}/pin`, {
+      const token = await getToken()
+      const response = await fetch(`${API_BASE_URL}/api/courses/${courseId}/pin`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -128,7 +135,8 @@ export function Dashboard() {
 
   const handleArchiveCourse = async (courseId: number, isArchived: boolean) => {
     try {
-      const response = await fetch(`/api/courses/${courseId}/archive`, {
+      const token = await getToken()
+      const response = await fetch(`${API_BASE_URL}/api/courses/${courseId}/archive`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -161,7 +169,8 @@ export function Dashboard() {
     }
 
     try {
-      const response = await fetch(`/api/courses/${courseId}`, {
+      const token = await getToken()
+      const response = await fetch(`${API_BASE_URL}/api/courses/${courseId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -204,8 +213,11 @@ export function Dashboard() {
           </div>
           <div className="flex items-center gap-4">
             <ThemeToggle />
-            <span className="text-sm text-muted-foreground">{user?.name}</span>
-            <Button variant="outline" size="sm" onClick={logout}>
+            <Button variant="ghost" size="icon" onClick={() => navigate('/settings')}>
+              <Settings className="h-4 w-4" />
+            </Button>
+            <span className="text-sm text-muted-foreground">{user?.fullName || user?.firstName}</span>
+            <Button variant="outline" size="sm" onClick={() => signOut()}>
               Sign out
             </Button>
           </div>

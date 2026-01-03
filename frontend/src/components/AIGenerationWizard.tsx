@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useAuth } from '@clerk/clerk-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -9,18 +10,28 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { toast } from '@/hooks/use-toast'
-import { Wand2, Sparkles, FileText, Loader2, Check, AlertCircle, ChevronRight, Edit2 } from 'lucide-react'
+import { Wand2, Sparkles, FileText, Loader2, Check, AlertCircle, ChevronRight, Edit2, Search, ExternalLink, Settings } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface OutlineItem {
   title: string
   keyPoints: string[]
 }
 
+interface NotionPage {
+  id: string
+  title: string
+  icon?: string
+  lastEdited: string
+  url: string
+}
+
 interface AIGenerationWizardProps {
   isOpen: boolean
   onClose: () => void
   deckId: number
-  token: string
   onSlidesGenerated: () => void
 }
 
@@ -30,11 +41,12 @@ export function AIGenerationWizard({
   isOpen, 
   onClose, 
   deckId, 
-  token,
   onSlidesGenerated 
 }: AIGenerationWizardProps) {
+  const { getToken } = useAuth()
+  const navigate = useNavigate()
   const [step, setStep] = useState<WizardStep>('input')
-  const [inputMode, setInputMode] = useState<'prompt' | 'notes'>('prompt')
+  const [inputMode, setInputMode] = useState<'prompt' | 'notes' | 'notion'>('prompt')
   const [topic, setTopic] = useState('')
   const [notes, setNotes] = useState('')
   const [numSlides, setNumSlides] = useState('5')
@@ -43,6 +55,80 @@ export function AIGenerationWizard({
   const [progress, setProgress] = useState(0)
   const [generatedCount, setGeneratedCount] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  
+  // Notion state
+  const [notionConnected, setNotionConnected] = useState<boolean | null>(null)
+  const [notionPages, setNotionPages] = useState<NotionPage[]>([])
+  const [notionSearch, setNotionSearch] = useState('')
+  const [selectedNotionPage, setSelectedNotionPage] = useState<NotionPage | null>(null)
+  const [isLoadingNotion, setIsLoadingNotion] = useState(false)
+  const [notionPreview, setNotionPreview] = useState<string | null>(null)
+
+  // Check Notion connection status
+  const checkNotionStatus = useCallback(async () => {
+    try {
+      const token = await getToken()
+      const response = await fetch(`${API_BASE_URL}/api/notion/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setNotionConnected(data.connected)
+      }
+    } catch {
+      setNotionConnected(false)
+    }
+  }, [getToken])
+
+  // Fetch Notion pages
+  const fetchNotionPages = useCallback(async (query = '') => {
+    setIsLoadingNotion(true)
+    try {
+      const token = await getToken()
+      const url = query 
+        ? `${API_BASE_URL}/api/notion/pages?query=${encodeURIComponent(query)}`
+        : `${API_BASE_URL}/api/notion/pages`
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setNotionPages(data.pages || [])
+      }
+    } catch {
+      toast({
+        title: 'Error',
+        description: 'Failed to fetch Notion pages',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsLoadingNotion(false)
+    }
+  }, [getToken])
+
+  // Load Notion status and pages when Notion tab is selected
+  useEffect(() => {
+    if (isOpen && inputMode === 'notion') {
+      checkNotionStatus()
+    }
+  }, [isOpen, inputMode, checkNotionStatus])
+
+  useEffect(() => {
+    if (notionConnected === true && inputMode === 'notion') {
+      fetchNotionPages()
+    }
+  }, [notionConnected, inputMode, fetchNotionPages])
+
+  // Search Notion pages with debounce
+  useEffect(() => {
+    if (inputMode !== 'notion' || !notionConnected) return
+    
+    const timer = setTimeout(() => {
+      fetchNotionPages(notionSearch)
+    }, 300)
+    
+    return () => clearTimeout(timer)
+  }, [notionSearch, inputMode, notionConnected, fetchNotionPages])
 
   const resetWizard = () => {
     setStep('input')
@@ -52,11 +138,104 @@ export function AIGenerationWizard({
     setProgress(0)
     setGeneratedCount(0)
     setError(null)
+    setSelectedNotionPage(null)
+    setNotionPreview(null)
+    setNotionSearch('')
   }
 
   const handleClose = () => {
     resetWizard()
     onClose()
+  }
+
+  // Preview a Notion page
+  const handlePreviewNotionPage = async (page: NotionPage) => {
+    setSelectedNotionPage(page)
+    setIsLoadingNotion(true)
+    setNotionPreview(null)
+    
+    try {
+      const token = await getToken()
+      const response = await fetch(`${API_BASE_URL}/api/notion/pages/${page.id}/preview`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setNotionPreview(data.markdown)
+      }
+    } catch {
+      toast({
+        title: 'Error',
+        description: 'Failed to preview page',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsLoadingNotion(false)
+    }
+  }
+
+  // Import from Notion directly (skip outline step)
+  const handleImportFromNotion = async () => {
+    if (!selectedNotionPage) {
+      toast({
+        title: 'No Page Selected',
+        description: 'Please select a Notion page to import.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setStep('generating')
+    setProgress(10)
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const token = await getToken()
+      setProgress(30)
+      
+      const response = await fetch(`${API_BASE_URL}/api/notion/import`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          page_id: selectedNotionPage.id,
+          deck_id: deckId,
+          target_slides: parseInt(numSlides),
+        }),
+      })
+
+      setProgress(70)
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || 'Failed to import from Notion')
+      }
+
+      const data = await response.json()
+      setGeneratedCount(data.slides?.length || 0)
+      setProgress(100)
+      setStep('complete')
+      
+      toast({
+        title: 'Slides Imported!',
+        description: `Successfully imported ${data.slides?.length || 0} slides from Notion.`,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to import from Notion'
+      setError(message)
+      setStep('input')
+      toast({
+        title: 'Import Failed',
+        description: message,
+        variant: 'destructive',
+      })
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleGenerateOutline = async () => {
@@ -74,7 +253,8 @@ export function AIGenerationWizard({
     setError(null)
 
     try {
-      const response = await fetch('/api/ai/outline/generate', {
+      const token = await getToken()
+      const response = await fetch(`${API_BASE_URL}/api/ai/outline/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -143,7 +323,8 @@ export function AIGenerationWizard({
     try {
       // Generate slides from outline
       setProgress(30)
-      const response = await fetch('/api/ai/slides/generate', {
+      const token = await getToken()
+      const response = await fetch(`${API_BASE_URL}/api/ai/slides/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -211,15 +392,19 @@ export function AIGenerationWizard({
           {/* Step: Input */}
           {step === 'input' && (
             <div className="space-y-4">
-              <Tabs value={inputMode} onValueChange={(v) => setInputMode(v as 'prompt' | 'notes')}>
-                <TabsList className="grid w-full grid-cols-2">
+              <Tabs value={inputMode} onValueChange={(v) => setInputMode(v as 'prompt' | 'notes' | 'notion')}>
+                <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="prompt" className="gap-2">
                     <Sparkles className="h-4 w-4" />
-                    Topic Prompt
+                    Topic
                   </TabsTrigger>
                   <TabsTrigger value="notes" className="gap-2">
                     <FileText className="h-4 w-4" />
-                    Paste Notes
+                    Notes
+                  </TabsTrigger>
+                  <TabsTrigger value="notion" className="gap-2">
+                    <span className="font-bold">N</span>
+                    Notion
                   </TabsTrigger>
                 </TabsList>
 
@@ -247,25 +432,169 @@ export function AIGenerationWizard({
                     />
                   </div>
                 </TabsContent>
+
+                <TabsContent value="notion" className="space-y-4 mt-4">
+                  {notionConnected === null ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : notionConnected === false ? (
+                    <div className="text-center py-8 space-y-4">
+                      <div className="h-12 w-12 mx-auto rounded-lg bg-black flex items-center justify-center text-white font-bold text-xl">
+                        N
+                      </div>
+                      <div>
+                        <p className="font-medium">Notion not connected</p>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Connect your Notion account in Settings to import pages
+                        </p>
+                      </div>
+                      <Button variant="outline" onClick={() => { handleClose(); navigate('/settings'); }}>
+                        <Settings className="h-4 w-4 mr-2" />
+                        Go to Settings
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {/* Search */}
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search pages..."
+                          value={notionSearch}
+                          onChange={(e) => setNotionSearch(e.target.value)}
+                          className="pl-10"
+                        />
+                      </div>
+
+                      {/* Page list and preview */}
+                      <div className="grid grid-cols-2 gap-4 h-[280px]">
+                        {/* Pages list */}
+                        <ScrollArea className="border rounded-lg">
+                          {isLoadingNotion && notionPages.length === 0 ? (
+                            <div className="flex items-center justify-center h-full">
+                              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                            </div>
+                          ) : notionPages.length === 0 ? (
+                            <div className="flex items-center justify-center h-full text-sm text-muted-foreground p-4 text-center">
+                              No pages found. Make sure pages are shared with your integration.
+                            </div>
+                          ) : (
+                            <div className="p-2 space-y-1">
+                              {notionPages.map((page) => (
+                                <button
+                                  key={page.id}
+                                  onClick={() => handlePreviewNotionPage(page)}
+                                  className={`w-full text-left p-2 rounded-md transition-colors ${
+                                    selectedNotionPage?.id === page.id
+                                      ? 'bg-primary text-primary-foreground'
+                                      : 'hover:bg-muted'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    {page.icon ? (
+                                      <span className="text-lg">{page.icon}</span>
+                                    ) : (
+                                      <FileText className="h-4 w-4 shrink-0" />
+                                    )}
+                                    <span className="truncate text-sm font-medium">
+                                      {page.title || 'Untitled'}
+                                    </span>
+                                  </div>
+                                  <div className={`text-xs mt-0.5 ${
+                                    selectedNotionPage?.id === page.id
+                                      ? 'text-primary-foreground/70'
+                                      : 'text-muted-foreground'
+                                  }`}>
+                                    {new Date(page.lastEdited).toLocaleDateString()}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </ScrollArea>
+
+                        {/* Preview */}
+                        <div className="border rounded-lg overflow-hidden flex flex-col">
+                          {selectedNotionPage ? (
+                            <>
+                              <div className="p-2 border-b bg-muted/50 flex items-center justify-between">
+                                <span className="text-sm font-medium truncate">
+                                  {selectedNotionPage.icon} {selectedNotionPage.title}
+                                </span>
+                                <a
+                                  href={selectedNotionPage.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-muted-foreground hover:text-foreground"
+                                >
+                                  <ExternalLink className="h-4 w-4" />
+                                </a>
+                              </div>
+                              <ScrollArea className="flex-1 p-3">
+                                {isLoadingNotion ? (
+                                  <div className="flex items-center justify-center h-full">
+                                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                                  </div>
+                                ) : notionPreview ? (
+                                  <pre className="text-xs whitespace-pre-wrap font-mono text-muted-foreground">
+                                    {notionPreview.slice(0, 1500)}
+                                    {notionPreview.length > 1500 && '...'}
+                                  </pre>
+                                ) : null}
+                              </ScrollArea>
+                            </>
+                          ) : (
+                            <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+                              Select a page to preview
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </TabsContent>
               </Tabs>
 
-              <div className="flex items-center gap-4">
-                <div className="space-y-2 flex-1">
-                  <Label htmlFor="numSlides">Number of slides</Label>
-                  <Select value={numSlides} onValueChange={setNumSlides}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="3">3 slides</SelectItem>
-                      <SelectItem value="5">5 slides</SelectItem>
-                      <SelectItem value="7">7 slides</SelectItem>
-                      <SelectItem value="10">10 slides</SelectItem>
-                      <SelectItem value="15">15 slides</SelectItem>
-                    </SelectContent>
-                  </Select>
+              {inputMode !== 'notion' && (
+                <div className="flex items-center gap-4">
+                  <div className="space-y-2 flex-1">
+                    <Label htmlFor="numSlides">Number of slides</Label>
+                    <Select value={numSlides} onValueChange={setNumSlides}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="3">3 slides</SelectItem>
+                        <SelectItem value="5">5 slides</SelectItem>
+                        <SelectItem value="7">7 slides</SelectItem>
+                        <SelectItem value="10">10 slides</SelectItem>
+                        <SelectItem value="15">15 slides</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {inputMode === 'notion' && notionConnected && (
+                <div className="flex items-center gap-4">
+                  <div className="space-y-2 flex-1">
+                    <Label htmlFor="numSlidesNotion">Target number of slides</Label>
+                    <Select value={numSlides} onValueChange={setNumSlides}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="5">5 slides</SelectItem>
+                        <SelectItem value="8">8 slides</SelectItem>
+                        <SelectItem value="10">10 slides</SelectItem>
+                        <SelectItem value="12">12 slides</SelectItem>
+                        <SelectItem value="15">15 slides</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
 
               {error && (
                 <div className="flex items-center gap-2 text-destructive text-sm">
@@ -278,19 +607,38 @@ export function AIGenerationWizard({
                 <Button variant="outline" onClick={handleClose}>
                   Cancel
                 </Button>
-                <Button onClick={handleGenerateOutline} disabled={isLoading}>
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Generating...
-                    </>
-                  ) : (
-                    <>
-                      Generate Outline
-                      <ChevronRight className="ml-2 h-4 w-4" />
-                    </>
-                  )}
-                </Button>
+                {inputMode === 'notion' ? (
+                  <Button 
+                    onClick={handleImportFromNotion} 
+                    disabled={isLoading || !selectedNotionPage || !notionConnected}
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Importing...
+                      </>
+                    ) : (
+                      <>
+                        Import from Notion
+                        <ChevronRight className="ml-2 h-4 w-4" />
+                      </>
+                    )}
+                  </Button>
+                ) : (
+                  <Button onClick={handleGenerateOutline} disabled={isLoading}>
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        Generate Outline
+                        <ChevronRight className="ml-2 h-4 w-4" />
+                      </>
+                    )}
+                  </Button>
+                )}
               </div>
             </div>
           )}

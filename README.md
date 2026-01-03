@@ -28,16 +28,32 @@ cd ../server
 npm install
 ```
 
-### 2. Configure Environment (Optional - for AI features)
+### 2. Configure Environment
 
+**Frontend (.env)**
+
+Create `frontend/.env`:
 ```bash
-# Create .env from template
-cp server/env.template server/.env
-
-# Edit server/.env and add your API keys:
-# OPENAI_API_KEY=sk-...
-# ELEVENLABS_API_KEY=...
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_key_here
 ```
+
+**Backend (.env)**
+
+Create `server/.env`:
+```bash
+# Clerk Authentication
+CLERK_SECRET_KEY=sk_test_your_key_here
+
+# AI Services
+OPENAI_API_KEY=sk-...
+ELEVENLABS_API_KEY=...
+GEMINI_API_KEY=...
+
+# Server
+PORT=3001
+```
+
+See `frontend/.env.example` and `server/.env.example` for complete configuration options.
 
 ### 3. Start the Application
 
@@ -61,9 +77,7 @@ cd frontend && npm run dev
 - **Frontend:** http://localhost:5173
 - **Backend:** http://localhost:3001
 
-**Demo Credentials:**
-- Email: demo@example.com
-- Password: demo123
+Sign up with your email or use social login via Clerk.
 
 ## Documentation
 
@@ -96,7 +110,11 @@ video_generator/
 
 ## API Keys
 
-To enable AI features, you'll need:
+### Clerk (Authentication) - Required
+- Create an account at [clerk.com](https://clerk.com)
+- Create a new application
+- Get your publishable key (`pk_test_*`) and secret key (`sk_test_*`)
+- Add to respective `.env` files
 
 ### OpenAI (Text Generation)
 - Get an API key from [platform.openai.com](https://platform.openai.com)
@@ -105,6 +123,14 @@ To enable AI features, you'll need:
 ### ElevenLabs (Voice Generation)
 - Get an API key from [elevenlabs.io](https://elevenlabs.io)
 - Add to `server/.env` as `ELEVENLABS_API_KEY`
+
+## Deployment
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for comprehensive deployment instructions including:
+- Deploying frontend to Vercel
+- Deploying backend to Railway/Render/VPS
+- Production environment configuration
+- Clerk setup for production
 
 ## Tech Stack
 

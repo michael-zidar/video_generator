@@ -5,6 +5,7 @@ import path from 'path';
 import http from 'http';
 import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
+import { ClerkExpressWithAuth } from '@clerk/clerk-sdk-node';
 import { initDatabase } from './db.js';
 import authRoutes from './routes/auth.js';
 import courseRoutes from './routes/courses.js';
@@ -16,6 +17,8 @@ import exportRoutes from './routes/export.js';
 import renderRoutes from './routes/renders.js';
 import aiRoutes from './routes/ai.js';
 import voiceProfileRoutes from './routes/voice-profiles.js';
+import notionRoutes from './routes/notion.js';
+import timelineItemsRoutes from './routes/timeline-items.js';
 import { authMiddleware } from './middleware/auth.js';
 import { renderEvents } from './services/render.js';
 
@@ -109,6 +112,7 @@ renderEvents.on('canceled', (data) => broadcastRenderEvent('canceled', data));
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(ClerkExpressWithAuth());
 
 // Static file serving for assets
 app.use('/data', express.static(path.join(__dirname, '../../data')));
@@ -129,6 +133,8 @@ app.use('/api/export', authMiddleware, exportRoutes);
 app.use('/api/renders', authMiddleware, renderRoutes);
 app.use('/api/ai', authMiddleware, aiRoutes);
 app.use('/api/voice-profiles', authMiddleware, voiceProfileRoutes);
+app.use('/api/notion', authMiddleware, notionRoutes);
+app.use('/api/timeline-items', authMiddleware, timelineItemsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
