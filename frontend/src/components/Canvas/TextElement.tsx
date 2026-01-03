@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { TextElement as TextElementType } from '@/types/slide'
+import type { TextElement as TextElementType } from '@/types/slide'
 
 interface TextElementProps {
   element: TextElementType

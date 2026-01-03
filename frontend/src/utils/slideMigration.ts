@@ -1,9 +1,10 @@
-import {
+import type {
   SlideElement,
   SlideElements,
   TextElement,
+} from '@/types/slide'
+import {
   createTextElement,
-  generateElementId,
 } from '@/types/slide'
 
 /**

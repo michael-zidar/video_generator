@@ -8,7 +8,7 @@ import {
   SelectValue 
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
-import { SlideElement, TextElement, ImageElement } from '@/types/slide'
+import type { SlideElement, TextElement } from '@/types/slide'
 import {
   Bold,
   Italic,

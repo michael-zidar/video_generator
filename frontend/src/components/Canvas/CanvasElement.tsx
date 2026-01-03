@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from 'react'
-import { Rnd, RndResizeCallback, RndDragCallback } from 'react-rnd'
-import { SlideElement } from '@/types/slide'
+import { useRef } from 'react'
+import { Rnd } from 'react-rnd'
+import type { DraggableData, DraggableEvent, ResizableDelta, Position } from 'react-rnd'
+import type { SlideElement } from '@/types/slide'
 
 interface CanvasElementProps {
   element: SlideElement
@@ -33,19 +34,19 @@ export function CanvasElement({
   const pixelWidth = (element.width / 100) * canvasWidth
   const pixelHeight = (element.height / 100) * canvasHeight
 
-  const handleDragStop: RndDragCallback = (_e, data) => {
+  const handleDragStop = (_e: DraggableEvent, data: DraggableData) => {
     // Convert pixels back to percentage
     const newX = (data.x / canvasWidth) * 100
     const newY = (data.y / canvasHeight) * 100
     onMove(element.id, newX, newY)
   }
 
-  const handleResizeStop: RndResizeCallback = (
-    _e, 
-    _dir, 
-    ref, 
-    _delta, 
-    position
+  const handleResizeStop = (
+    _e: MouseEvent | TouchEvent, 
+    _dir: string, 
+    ref: HTMLElement, 
+    _delta: ResizableDelta, 
+    position: Position
   ) => {
     // Convert pixels back to percentage
     const newWidth = (ref.offsetWidth / canvasWidth) * 100

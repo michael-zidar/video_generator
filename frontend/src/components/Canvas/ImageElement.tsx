@@ -1,4 +1,4 @@
-import { ImageElement as ImageElementType } from '@/types/slide'
+import type { ImageElement as ImageElementType } from '@/types/slide'
 import { ImagePlus } from 'lucide-react'
 
 interface ImageElementProps {

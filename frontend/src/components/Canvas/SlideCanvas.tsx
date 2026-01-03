@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useMemo } from 'react'
-import { SlideElement, TextElement as TextElementType, ImageElement as ImageElementType, createTextElement, createImageElement, generateElementId } from '@/types/slide'
+import type { SlideElement, TextElement as TextElementType, ImageElement as ImageElementType } from '@/types/slide'
+import { createTextElement, createImageElement, generateElementId } from '@/types/slide'
 import { CanvasElement } from './CanvasElement'
 import { TextElement } from './TextElement'
 import { ImageElement } from './ImageElement'

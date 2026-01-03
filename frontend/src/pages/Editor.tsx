@@ -60,6 +60,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { ThemeToggle } from '@/components/ui/theme-toggle'
 import { RevealPreview } from '@/components/RevealPreview'
 import { AIGenerationWizard } from '@/components/AIGenerationWizard'
+import { RenderDialog } from '@/components/RenderDialog'
 import { Timeline } from '@/components/Timeline'
 import { SlideCanvas } from '@/components/Canvas'
 import { migrateSlideToElements, isElementBasedFormat } from '@/utils/slideMigration'
@@ -239,6 +240,7 @@ export function Editor() {
   const [playingAudio, setPlayingAudio] = useState<HTMLAudioElement | null>(null)
   const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false)
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false)
+  const [showRenderDialog, setShowRenderDialog] = useState(false)
 
   // DnD sensors for drag and drop
   const sensors = useSensors(
@@ -1429,10 +1431,7 @@ export function Editor() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => toast({
-                title: 'Render Started',
-                description: 'Video rendering will begin shortly. This feature is coming soon.',
-              })}>
+              <DropdownMenuItem onClick={() => setShowRenderDialog(true)}>
                 <Video className="mr-2 h-4 w-4" />
                 Render Video (MP4)
               </DropdownMenuItem>
@@ -2654,6 +2653,14 @@ export function Editor() {
           }}
         />
       )}
+
+      {/* Render Dialog */}
+      <RenderDialog
+        open={showRenderDialog}
+        onOpenChange={setShowRenderDialog}
+        deckId={deck?.id || null}
+        deckTitle={lesson?.title || deck?.title}
+      />
 
       {/* Bottom Timeline */}
       <div className="h-44 shrink-0">
