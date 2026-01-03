@@ -1,0 +1,686 @@
+<project_specification>
+  <project_name>CourseVideo Studio - AI Slide + Narration + Video Builder</project_name>
+
+  <overview>
+    Build a full-featured, course-focused AI presentation and video generator. The app should let creators:
+    (1) auto-generate slide decks from lecture notes or prompts, (2) import existing decks (PPTX or PDF),
+    (3) generate or edit per-slide scripts, (4) generate AI voice-overs per slide (with voice selection),
+    and (5) render polished videos using ffmpeg (intro + slide scenes + outro, music, captions).
+    The UI must feel modern and “editor-grade”: clean, fast, and predictable, using the latest shadcn/ui
+    components on top of Tailwind and Radix primitives.
+  </overview>
+
+  <technology_stack>
+    <api_key>
+      You can use an API key located at /tmp/api-key for testing. You will not be allowed to read this file, but you can reference it in code.
+      The AI layer must be provider-pluggable (text generation, TTS, image generation).
+    </api_key>
+
+    <frontend>
+      <framework>React with Vite</framework>
+      <styling>Tailwind CSS (configured with PostCSS)</styling>
+      <component_library>shadcn/ui (latest), Radix UI, lucide-react icons</component_library>
+      <state_management>React hooks + Zustand (editor-grade state) + React Query for server state</state_management>
+      <routing>React Router for navigation</routing>
+      <editor_canvas>Konva or Fabric.js for slide canvas overlays (highlights, callouts)</editor_canvas>
+      <markdown>MDX/React Markdown for scripts and notes</markdown>
+      <port>Only launch on port {frontend_port}</port>
+    </frontend>
+
+    <backend>
+      <runtime>Node.js with Express</runtime>
+      <database>SQLite with better-sqlite3</database>
+      <media_processing>ffmpeg (via child_process spawn), ffprobe for metadata</media_processing>
+      <jobs>In-process job queue to start; optional BullMQ/Redis adapter later</jobs>
+      <file_processing>
+        - PPTX import pipeline (PPTX -> slide images + extracted text + notes)
+        - PDF import pipeline (PDF -> page images)
+      </file_processing>
+      <storage>Local filesystem storage under /data (assets, renders, cache)</storage>
+    </backend>
+
+    <ai_integrations>
+      <text_generation>
+        - Slide outline generation from lecture notes
+        - Speaker notes / narration script generation per slide
+        - Tone controls (formal, friendly, energetic, etc.)
+      </text_generation>
+      <tts>
+        - Provider adapter interface (e.g., “provider=openai|elevenlabs|polly|azure”)
+        - Voice selection, speed, pitch, pauses, pronunciation hints
+      </tts>
+      <image_generation_optional>
+        - Provider adapter interface for generating slide background images / diagrams
+        - Must support “regenerate variations” and “seed locking”
+      </image_generation_optional>
+    </ai_integrations>
+
+    <communication>
+      <api>RESTful endpoints for CRUD + generation</api>
+      <streaming>
+        - SSE for long-running operations (import progress, TTS generation, rendering)
+        - Optional WebSocket upgrade for collaborative editing later
+      </streaming>
+    </communication>
+  </technology_stack>
+
+  <prerequisites>
+    <environment_setup>
+      - Repository includes .env with provider keys (e.g., VITE_AI_PROVIDER, AI_PROVIDER_API_KEY)
+      - Frontend dependencies pre-installed via pnpm
+      - Backend code goes in /server directory
+      - ffmpeg and ffprobe available on PATH (or bundled for dev)
+      - Ensure a writable /data directory exists for assets and renders
+    </environment_setup>
+  </prerequisites>
+
+  <core_features>
+    <projects_courses>
+      - Create “Courses” that contain multiple “Lessons”
+      - Each lesson contains a “Deck” (slides + scripts + audio + render settings)
+      - Course-wide style presets (fonts, theme, intro/outro defaults, voice defaults)
+      - Folder organization and search across lessons
+      - Duplicating lessons/decks as templates
+    </projects_courses>
+
+    <deck_editor>
+      - Slide list (thumbnail rail) with reorder (drag-and-drop)
+      - Slide canvas preview with zoom + safe area guides
+      - Per-slide properties panel:
+        - Background (color, gradient, image)
+        - Layout template (title, bullets, image-left, etc.)
+        - Speaker notes / script editor (rich text + markdown)
+        - Voiceover settings (voice, speed, pauses)
+        - Optional “on-screen highlights” timeline (callouts, cursor, boxes)
+      - Global deck settings:
+        - Resolution (1080p/4K), aspect ratio (16:9, 9:16, 1:1)
+        - Branding (logo, watermark), fonts, theme tokens
+        - Captions/subtitles on/off and style
+    </deck_editor>
+
+    <import_export>
+      <import>
+        - Upload PPTX: convert each slide into a “scene”
+        - Upload PDF: split into per-page slides
+        - Import extraction:
+          - Slide images
+          - Extracted text (best-effort) for script scaffolding
+          - Optional speaker notes if available in PPTX
+      </import>
+
+      <export>
+        - Export final video (MP4) and audio-only (MP3/WAV)
+        - Export captions (SRT/VTT)
+        - Export deck as PDF
+        - Export edited deck back to PPTX (best-effort mapping to templates)
+      </export>
+    </import_export>
+
+    <ai_generation_workflows>
+      <slide_generation>
+        - Generate an outline (sections -> slides)
+        - Generate slides from:
+          - A prompt
+          - Uploaded lecture notes (txt/md/docx/pdf)
+          - A structured syllabus (modules/lessons)
+        - Slide templates library with “apply to selection” and “auto-fit content”
+      </slide_generation>
+
+      <script_generation>
+        - Generate narration script per slide (with length targets: 15s/30s/60s)
+        - Style controls: tone, complexity, audience level
+        - “Use my voice” option (style transfer by reference text only; no cloning by default)
+        - Regenerate:
+          - This slide
+          - Selected slides
+          - Entire deck
+        - Script diff view + version history
+      </script_generation>
+
+      <tts_voiceover>
+        - Generate voiceover audio per slide with progress indicators
+        - Pronunciation dictionary per course (custom terms, names, acronyms)
+        - Pause controls:
+          - Pause after title
+          - Pause after bullets
+          - Emphasis tags (SSML-like abstraction internally)
+        - Normalize loudness across slides
+        - Optional background music ducking
+      </tts_voiceover>
+
+      <visual_assets_optional>
+        - Generate images for slides (backgrounds, illustrations, simple diagrams)
+        - “Brand safe” mode (avoid copyrighted logos/characters)
+        - Asset library with tags and reuse across lessons
+      </visual_assets_optional>
+    </ai_generation_workflows>
+
+    <video_rendering>
+      - Render pipeline using ffmpeg:
+        - Intro scene (optional)
+        - Slide scenes (each slide image/video layer + voiceover + overlays)
+        - Outro scene (optional)
+      - Scene-level controls:
+        - Duration (auto from voiceover length; manual override)
+        - Transitions (fade, push, dissolve)
+        - Ken Burns/pan/zoom (optional)
+      - Draft preview rendering (fast, lower bitrate) and Final rendering (high quality)
+      - Resume/retry rendering; cache intermediate assets
+      - Render history (date, settings, output files)
+    </video_rendering>
+
+    <timeline_preview>
+      - Bottom timeline with:
+        - Slide scene blocks (reorder with ripple)
+        - Audio tracks (voiceover per slide, optional music bed)
+        - Caption track
+      - Playback preview with scrubbing
+      - Per-slide waveform display (for voiceover)
+    </timeline_preview>
+
+    <collaboration_optional>
+      - Shareable “review link” (read-only) for stakeholder feedback
+      - Timestamped comments per slide/scene (mock feature to start)
+      - Export a “review PDF” with thumbnails and scripts
+    </collaboration_optional>
+
+    <accessibility>
+      - Full keyboard navigation in the editor
+      - Screen reader-friendly structure for slide lists and panels
+      - Captions/subtitles generation and edit UI
+      - High contrast mode + reduced motion support
+    </accessibility>
+
+    <responsive_design>
+      - Desktop-first editor (primary)
+      - Tablet support for review and minor edits
+      - Mobile support for playback/review (not full editing)
+    </responsive_design>
+  </core_features>
+
+  <database_schema>
+    <tables>
+      <users>
+        - id, email, name, avatar_url
+        - created_at, last_login
+        - preferences (JSON: theme, editor_layout, defaults)
+        - default_voice_profile_id
+      </users>
+
+      <courses>
+        - id, user_id, name, description
+        - branding (JSON: logo_asset_id, colors, fonts)
+        - created_at, updated_at
+        - is_archived, is_pinned
+      </courses>
+
+      <lessons>
+        - id, course_id, title, description
+        - created_at, updated_at
+        - position
+      </lessons>
+
+      <decks>
+        - id, lesson_id, title
+        - aspect_ratio, resolution, theme (JSON)
+        - intro_scene_enabled, outro_scene_enabled
+        - created_at, updated_at
+      </decks>
+
+      <slides>
+        - id, deck_id, position
+        - title, body (JSON: bullets, layout fields)
+        - speaker_notes (text/markdown)
+        - slide_asset_id (image/video reference)
+        - duration_ms (nullable; computed if voiceover exists)
+        - transition (JSON)
+        - created_at, updated_at
+      </slides>
+
+      <assets>
+        - id, user_id, course_id (nullable)
+        - kind (image/video/audio/document)
+        - filename, mime_type, size_bytes
+        - storage_path, hash
+        - metadata (JSON: width/height/duration, pages, etc.)
+        - created_at
+      </assets>
+
+      <voice_profiles>
+        - id, user_id, name
+        - provider, voice_id
+        - defaults (JSON: speed, pitch, style, language)
+        - pronunciation_lexicon (JSON)
+        - created_at, updated_at
+      </voice_profiles>
+
+      <voiceovers>
+        - id, slide_id
+        - provider, voice_profile_id
+        - script_text, ssml_like (JSON)
+        - audio_asset_id
+        - duration_ms, loudness_lufs
+        - status (queued/running/succeeded/failed)
+        - error_message (nullable)
+        - created_at, updated_at
+      </voiceovers>
+
+      <renders>
+        - id, deck_id
+        - kind (preview/final)
+        - settings (JSON: bitrate, fps, captions, music)
+        - output_asset_id
+        - status (queued/running/succeeded/failed/canceled)
+        - progress (JSON: percent, current_step, eta_ms_estimate)
+        - created_at, updated_at
+      </renders>
+
+      <jobs>
+        - id, type (import_pptx/import_pdf/generate_slides/generate_tts/render_video)
+        - entity_type (deck/slide/render/asset)
+        - entity_id
+        - status (queued/running/succeeded/failed/canceled)
+        - progress (JSON)
+        - error_message (nullable)
+        - created_at, updated_at
+      </jobs>
+
+      <versions>
+        - id, entity_type (deck/slide/script)
+        - entity_id
+        - snapshot (JSON/text)
+        - created_at
+      </versions>
+
+      <share_links>
+        - id, entity_type (deck/lesson/course)
+        - entity_id
+        - share_token
+        - permissions (read_only)
+        - expires_at (nullable)
+        - created_at, view_count
+      </share_links>
+    </tables>
+  </database_schema>
+
+  <api_endpoints_summary>
+    <authentication>
+      - POST /api/auth/login
+      - POST /api/auth/logout
+      - GET /api/auth/me
+      - PUT /api/auth/profile
+    </authentication>
+
+    <courses>
+      - GET /api/courses
+      - POST /api/courses
+      - GET /api/courses/:id
+      - PUT /api/courses/:id
+      - DELETE /api/courses/:id
+      - PUT /api/courses/:id/archive
+      - PUT /api/courses/:id/pin
+    </courses>
+
+    <lessons>
+      - GET /api/courses/:courseId/lessons
+      - POST /api/courses/:courseId/lessons
+      - GET /api/lessons/:id
+      - PUT /api/lessons/:id
+      - DELETE /api/lessons/:id
+      - POST /api/lessons/:id/duplicate
+    </lessons>
+
+    <decks_slides>
+      - GET /api/lessons/:lessonId/deck
+      - POST /api/lessons/:lessonId/deck
+      - PUT /api/decks/:id
+      - GET /api/decks/:id/slides
+      - POST /api/decks/:id/slides
+      - PUT /api/slides/:id
+      - DELETE /api/slides/:id
+      - POST /api/slides/reorder
+      - POST /api/slides/:id/duplicate
+    </decks_slides>
+
+    <assets>
+      - POST /api/assets/upload (multipart)
+      - GET /api/assets/:id
+      - DELETE /api/assets/:id
+      - GET /api/assets/:id/download
+    </assets>
+
+    <imports>
+      - POST /api/import/pptx (asset_id -> job_id)
+      - POST /api/import/pdf (asset_id -> job_id)
+      - POST /api/import/notes (document asset_id -> job_id)
+    </imports>
+
+    <ai_generation>
+      - POST /api/ai/slides/generate (deck_id, source -> job_id)
+      - POST /api/ai/scripts/generate (deck_id|slide_ids -> job_id)
+      - POST /api/ai/voiceover/generate (slide_ids, voice_profile_id -> job_id)
+      - POST /api/ai/images/generate (slide_id, prompt -> job_id) [optional]
+      - GET /api/ai/providers (capabilities)
+      - GET /api/ai/voices?provider=...
+    </ai_generation>
+
+    <voice_profiles>
+      - GET /api/voice-profiles
+      - POST /api/voice-profiles
+      - PUT /api/voice-profiles/:id
+      - DELETE /api/voice-profiles/:id
+      - PUT /api/voice-profiles/:id/lexicon
+    </voice_profiles>
+
+    <rendering>
+      - POST /api/renders (deck_id, kind -> render_id)
+      - GET /api/renders/:id
+      - POST /api/renders/:id/cancel
+      - GET /api/renders/:id/output (download/stream)
+    </rendering>
+
+    <jobs_streaming>
+      - GET /api/jobs/:id
+      - GET /api/jobs/stream (SSE: progress updates)
+    </jobs_streaming>
+
+    <sharing>
+      - POST /api/share (entity_type, entity_id)
+      - GET /api/share/:token
+      - DELETE /api/share/:token
+    </sharing>
+
+    <search>
+      - GET /api/search?q=query&type=courses|lessons|decks|slides
+    </search>
+
+    <settings>
+      - GET /api/settings
+      - PUT /api/settings
+    </settings>
+  </api_endpoints_summary>
+
+  <ui_layout>
+    <main_structure>
+      - “Editor shell” layout:
+        - Left sidebar: Courses/Lessons/Decks navigation
+        - Center: Slide canvas + script editor tabs
+        - Right: Properties inspector (contextual)
+        - Bottom: Timeline + playback controls
+      - Persistent top bar with:
+        - Breadcrumbs (Course / Lesson / Deck)
+        - Undo/redo
+        - Preview/Render buttons
+        - Share/Export menu
+      - Responsive breakpoints:
+        - Desktop: full 4-region editor
+        - Tablet: collapsible side panels
+        - Mobile: review-only player + comments
+    </main_structure>
+
+    <sidebar_left>
+      - New Course / New Lesson buttons
+      - Search input (courses/lessons/slides)
+      - Tree view:
+        - Course
+          - Lessons
+            - Deck
+      - Recent decks list
+      - Settings + account menu
+    </sidebar_left>
+
+    <center_editor>
+      - Tabs: Slides | Script | Audio | Captions
+      - Slides tab:
+        - Thumbnail rail (left inside center area)
+        - Canvas preview (center)
+      - Script tab:
+        - Per-slide script editor with versions
+        - “Generate” and “Regenerate” actions
+      - Audio tab:
+        - Voice picker + generate audio
+        - Waveform preview, trim start/end, silence padding
+      - Captions tab:
+        - Auto-generate captions
+        - Edit captions and timing
+    </center_editor>
+
+    <right_inspector>
+      - Context-aware panel:
+        - Slide layout and styling
+        - Background asset picker
+        - Transition settings
+        - Voiceover parameters
+        - Duration controls
+      - Uses shadcn components:
+        - Tabs, Accordion, Sheet, Dialog, Popover, Command, DataTable, Toaster
+    </right_inspector>
+
+    <bottom_timeline>
+      - Timeline scrubbing and playback
+      - Scene blocks (slides) with durations
+      - Audio track lane (voiceover) + optional music lane
+      - Render progress dock (when active)
+    </bottom_timeline>
+
+    <modals_overlays>
+      - Import modal (PPTX/PDF/Notes)
+      - AI generation wizard (outline -> slides -> scripts -> voice)
+      - Voice library modal (preview voices)
+      - Export modal (MP4, captions, PDF, PPTX)
+      - Render settings modal (quality, fps, bitrate)
+      - Share/review link modal
+      - Command palette overlay (Cmd/Ctrl+K)
+    </modals_overlays>
+  </ui_layout>
+
+  <design_system>
+    <color_palette>
+      - Background: neutral light/dark (shadcn defaults)
+      - Primary: configurable per course brand (default: indigo)
+      - Surface: card-based layers with subtle borders
+      - Accent: used for selection and timeline focus
+      - Status: success/warn/error for jobs and renders
+    </color_palette>
+
+    <typography>
+      - Sans: Inter/system-ui
+      - Monospace: JetBrains Mono (for scripts/SSML-like tags if shown)
+      - Dense editor spacing, generous preview spacing
+    </typography>
+
+    <components>
+      <editor_shell>
+        - Resizable panels (shadcn + custom)
+        - Sticky top bar with compact controls
+        - Consistent keyboard shortcuts tooltip
+      </editor_shell>
+
+      <timeline>
+        - Scene blocks with draggable edges (duration)
+        - Playhead + time ruler
+        - Tooltip on hover with slide title and duration
+      </timeline>
+
+      <forms_inputs>
+        - All forms use shadcn Form + Zod validation
+        - Inline errors and safe defaults
+        - Non-blocking toasts for background jobs
+      </forms_inputs>
+
+      <data_views>
+        - Asset library with grid/list toggle
+        - Filters by type/tag/course
+      </data_views>
+    </components>
+
+    <animations>
+      - Minimal, editor-friendly transitions
+      - Skeleton loaders for thumbnails and assets
+      - Smooth progress updates for jobs (no jank)
+    </animations>
+  </design_system>
+
+  <key_interactions>
+    <generate_from_notes_flow>
+      1. User creates a new lesson deck
+      2. User uploads lecture notes (or pastes text)
+      3. AI wizard proposes outline -> slide titles -> draft slide content
+      4. User edits slides quickly in thumbnail rail + inspector
+      5. User generates scripts per slide with duration targets
+      6. User selects voice and generates voiceovers (batch)
+      7. Timeline auto-sizes each slide to narration duration
+      8. User previews and tweaks transitions
+      9. User renders preview MP4, then final MP4
+    </generate_from_notes_flow>
+
+    <import_pptx_flow>
+      1. User imports PPTX (or PDF)
+      2. Backend converts to per-slide images and extracts text best-effort
+      3. Slides appear with thumbnails and editable script placeholders
+      4. User generates voiceovers per slide (or records/upload audio)
+      5. User renders preview and exports final
+    </import_pptx_flow>
+
+    <render_flow>
+      1. User clicks Render -> chooses Preview or Final
+      2. Render job starts; progress streams via SSE
+      3. UI shows step-by-step pipeline (assets -> audio -> captions -> ffmpeg compose)
+      4. On completion, video is available in render history with download/share
+      5. On failure, user sees actionable error + retry button
+    </render_flow>
+  </key_interactions>
+
+  <implementation_steps>
+    <step number="1">
+      <title>Foundation: Project Setup, Storage, and DB</title>
+      <tasks>
+        - Initialize Express server + SQLite schema
+        - Create /data storage layout (assets/, renders/, cache/)
+        - Implement auth stubs (or single-user dev mode)
+        - Add assets upload and retrieval endpoints
+        - Add jobs table + basic in-process job runner
+        - Add SSE endpoint for job progress
+      </tasks>
+    </step>
+
+    <step number="2">
+      <title>Editor Shell + Navigation</title>
+      <tasks>
+        - Build shadcn-based editor layout with resizable panels
+        - Courses/Lessons/Deck CRUD UI and endpoints
+        - Slide list (thumbnails) + reorder
+        - Slide inspector scaffolding + state model (Zustand)
+      </tasks>
+    </step>
+
+    <step number="3">
+      <title>Import Pipelines (PPTX/PDF)</title>
+      <tasks>
+        - Implement PDF -> per-page images import
+        - Implement PPTX import pipeline (convert -> images; extract notes if possible)
+        - Store slide assets + create slides entries
+        - Surface import progress in UI with SSE
+      </tasks>
+    </step>
+
+    <step number="4">
+      <title>AI Generation: Slides and Scripts</title>
+      <tasks>
+        - Provider adapter interface (text generation)
+        - Outline -> slide generation wizard
+        - Per-slide script generation with length targets
+        - Script versioning + diff view
+        - Regenerate selected slides/scripts
+      </tasks>
+    </step>
+
+    <step number="5">
+      <title>TTS: Voiceovers and Audio Controls</title>
+      <tasks>
+        - Provider adapter interface (TTS)
+        - Voice profile management + lexicon
+        - Batch voiceover generation jobs
+        - Waveform preview and padding/trim controls
+        - Loudness normalization across slides
+      </tasks>
+    </step>
+
+    <step number="6">
+      <title>Timeline + Playback Preview</title>
+      <tasks>
+        - Build bottom timeline (scene durations + audio lane)
+        - Implement playhead + scrubbing + preview player
+        - Auto-duration from voiceover length with manual override
+        - Transition selector and per-slide scene settings
+      </tasks>
+    </step>
+
+    <step number="7">
+      <title>Rendering with ffmpeg</title>
+      <tasks>
+        - Compose slides + overlays + audio into scenes
+        - Add intro/outro support (optional scenes)
+        - Add captions pipeline (SRT/VTT export; burn-in optional)
+        - Preview vs final render presets
+        - Render history and downloadable output assets
+      </tasks>
+    </step>
+
+    <step number="8">
+      <title>Polish: Asset Library, Templates, Export</title>
+      <tasks>
+        - Asset library UI with tagging and reuse
+        - Slide templates library and “apply template” flow
+        - Export PDF + captions + audio-only
+        - Shareable review links (read-only)
+        - Keyboard shortcuts + command palette
+      </tasks>
+    </step>
+
+    <step number="9">
+      <title>Hardening: Reliability, Errors, Performance</title>
+      <tasks>
+        - Robust error handling for ffmpeg and import tools
+        - Retry/resume for long jobs
+        - Caching of intermediate renders
+        - Large-file handling (chunked upload optional)
+        - Accessibility pass (focus management, ARIA)
+      </tasks>
+    </step>
+  </implementation_steps>
+
+  <success_criteria>
+    <functionality>
+      - PPTX/PDF import reliably produces one slide scene per page/slide
+      - AI can generate a usable deck + scripts from lecture notes end-to-end
+      - TTS voiceovers generate per slide with consistent loudness and timing
+      - Preview and final rendering produce correct MP4 output via ffmpeg
+      - Render progress is visible, accurate, and resilient to failures
+      - Export artifacts (MP4, SRT/VTT, PDF) download cleanly
+    </functionality>
+
+    <user_experience>
+      - Editor feels fast and predictable (no confusing “magic” states)
+      - Clean shadcn-based UI with consistent spacing and hierarchy
+      - Minimal friction for the core workflow: import/generate -> voice -> render
+      - Great empty states and helpful inline guidance for first-time users
+      - Review is easy: preview playback, per-slide iteration, rerender quickly
+    </user_experience>
+
+    <technical_quality>
+      - Clear separation of concerns: editor state, API state, job state
+      - Deterministic rendering outputs for the same inputs/settings
+      - Safe file handling, path sanitization, and size limits
+      - Job execution is observable (logs, progress steps, actionable errors)
+      - Codebase is maintainable and extensible for new AI providers
+    </technical_quality>
+
+    <design_polish>
+      - Consistent theme tokens and component usage (no one-off styles)
+      - Dark mode fully supported
+      - Timeline, thumbnails, and inspector feel “pro tool” quality
+      - Smooth micro-interactions without heavy animations
+    </design_polish>
+  </success_criteria>
+</project_specification>

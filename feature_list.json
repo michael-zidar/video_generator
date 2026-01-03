@@ -1,0 +1,1066 @@
+{
+  "features": [
+    {
+      "id": 1,
+      "name": "Application Foundation",
+      "description": "Basic app setup with frontend and backend running",
+      "priority": 1,
+      "tests": [
+        {
+          "id": "1.1",
+          "description": "Frontend loads at configured port with no console errors",
+          "steps": ["Navigate to frontend URL", "Verify page loads", "Check console for errors"],
+          "passes": true
+        },
+        {
+          "id": "1.2",
+          "description": "Backend API health check returns success",
+          "steps": ["Call GET /api/health", "Verify 200 response"],
+          "passes": true
+        },
+        {
+          "id": "1.3",
+          "description": "Database tables are created on startup",
+          "steps": ["Start server", "Verify SQLite database exists with tables"],
+          "passes": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Authentication",
+      "description": "User authentication and session management",
+      "priority": 2,
+      "tests": [
+        {
+          "id": "2.1",
+          "description": "Login page renders with email and password fields",
+          "steps": ["Navigate to /login", "Verify email input exists", "Verify password input exists", "Verify submit button exists"],
+          "passes": true
+        },
+        {
+          "id": "2.2",
+          "description": "User can log in with valid credentials",
+          "steps": ["Navigate to /login", "Enter valid credentials", "Click submit", "Verify redirect to dashboard"],
+          "passes": true
+        },
+        {
+          "id": "2.3",
+          "description": "Invalid login shows error message",
+          "steps": ["Navigate to /login", "Enter invalid credentials", "Click submit", "Verify error message displayed"],
+          "passes": true
+        },
+        {
+          "id": "2.4",
+          "description": "User can log out",
+          "steps": ["Log in first", "Click logout button", "Verify redirect to login page"],
+          "passes": true
+        },
+        {
+          "id": "2.5",
+          "description": "Protected routes redirect unauthenticated users to login",
+          "steps": ["Navigate to /dashboard without auth", "Verify redirect to login"],
+          "passes": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Editor Shell Layout",
+      "description": "Main editor layout with resizable panels",
+      "priority": 3,
+      "tests": [
+        {
+          "id": "3.1",
+          "description": "Editor shell displays with all four regions",
+          "steps": ["Log in", "Navigate to editor", "Verify left sidebar visible", "Verify center canvas visible", "Verify right inspector visible", "Verify bottom timeline visible"],
+          "passes": true
+        },
+        {
+          "id": "3.2",
+          "description": "Top bar shows breadcrumbs and action buttons",
+          "steps": ["Navigate to editor", "Verify breadcrumbs display", "Verify undo/redo buttons", "Verify preview button", "Verify render button"],
+          "passes": true
+        },
+        {
+          "id": "3.3",
+          "description": "Left sidebar shows course/lesson navigation tree",
+          "steps": ["Navigate to editor", "Verify sidebar shows course list", "Verify tree structure with expand/collapse"],
+          "passes": true
+        },
+        {
+          "id": "3.4",
+          "description": "Panels are resizable via drag handles",
+          "steps": ["Navigate to editor", "Drag panel resize handle", "Verify panel widths change"],
+          "passes": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Course Management",
+      "description": "CRUD operations for courses",
+      "priority": 4,
+      "tests": [
+        {
+          "id": "4.1",
+          "description": "User can create a new course",
+          "steps": ["Click 'New Course' button", "Fill in course name and description", "Submit form", "Verify course appears in list"],
+          "passes": true
+        },
+        {
+          "id": "4.2",
+          "description": "User can view course details",
+          "steps": ["Click on a course in the list", "Verify course details panel opens", "Verify name, description, and lessons shown"],
+          "passes": true
+        },
+        {
+          "id": "4.3",
+          "description": "User can edit course details",
+          "steps": ["Open course details", "Click edit", "Modify course name", "Save changes", "Verify updated name displays"],
+          "passes": true
+        },
+        {
+          "id": "4.4",
+          "description": "User can delete a course",
+          "steps": ["Select a course", "Click delete", "Confirm deletion", "Verify course removed from list"],
+          "passes": true
+        },
+        {
+          "id": "4.5",
+          "description": "User can archive a course",
+          "steps": ["Select a course", "Click archive", "Verify course moves to archived section"],
+          "passes": true
+        },
+        {
+          "id": "4.6",
+          "description": "User can pin a course",
+          "steps": ["Select a course", "Click pin", "Verify pinned indicator appears", "Verify course appears in pinned section"],
+          "passes": true
+        },
+        {
+          "id": "4.7",
+          "description": "Search filters courses by name",
+          "steps": ["Type in search box", "Verify list filters to matching courses"],
+          "passes": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "Lesson Management",
+      "description": "CRUD operations for lessons within courses",
+      "priority": 5,
+      "tests": [
+        {
+          "id": "5.1",
+          "description": "User can create a new lesson in a course",
+          "steps": ["Select a course", "Click 'New Lesson'", "Fill in title and description", "Submit", "Verify lesson appears under course"],
+          "passes": true
+        },
+        {
+          "id": "5.2",
+          "description": "User can view lesson details",
+          "steps": ["Click on a lesson", "Verify lesson details display", "Verify deck information shown"],
+          "passes": true
+        },
+        {
+          "id": "5.3",
+          "description": "User can edit lesson details",
+          "steps": ["Open lesson", "Click edit", "Modify title", "Save", "Verify updated title"],
+          "passes": true
+        },
+        {
+          "id": "5.4",
+          "description": "User can delete a lesson",
+          "steps": ["Select a lesson", "Click delete", "Confirm", "Verify removed from list"],
+          "passes": true
+        },
+        {
+          "id": "5.5",
+          "description": "User can reorder lessons via drag and drop",
+          "steps": ["Drag a lesson", "Drop in new position", "Verify order updated"],
+          "passes": true
+        },
+        {
+          "id": "5.6",
+          "description": "User can duplicate a lesson",
+          "steps": ["Select a lesson", "Click duplicate", "Verify copy created with '(Copy)' suffix"],
+          "passes": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "Deck Editor - Slides",
+      "description": "Slide management within decks",
+      "priority": 6,
+      "tests": [
+        {
+          "id": "6.1",
+          "description": "Deck editor shows slide thumbnail rail",
+          "steps": ["Open a lesson deck", "Verify thumbnail rail displays on left", "Verify slides show as thumbnails"],
+          "passes": true
+        },
+        {
+          "id": "6.2",
+          "description": "User can add a new slide",
+          "steps": ["Click 'Add Slide' button", "Verify new slide appears in rail", "Verify slide is selected"],
+          "passes": true
+        },
+        {
+          "id": "6.3",
+          "description": "User can select a slide to view in canvas",
+          "steps": ["Click on a slide thumbnail", "Verify canvas updates to show selected slide"],
+          "passes": true
+        },
+        {
+          "id": "6.4",
+          "description": "User can delete a slide",
+          "steps": ["Select a slide", "Click delete", "Confirm", "Verify slide removed from rail"],
+          "passes": true
+        },
+        {
+          "id": "6.5",
+          "description": "User can reorder slides via drag and drop",
+          "steps": ["Drag a slide thumbnail", "Drop in new position", "Verify order updated"],
+          "passes": true
+        },
+        {
+          "id": "6.6",
+          "description": "User can duplicate a slide",
+          "steps": ["Select a slide", "Click duplicate", "Verify copy created after original"],
+          "passes": true
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "name": "Deck Editor - Canvas Preview",
+      "description": "Slide canvas preview functionality",
+      "priority": 7,
+      "tests": [
+        {
+          "id": "7.1",
+          "description": "Canvas displays selected slide content",
+          "steps": ["Select a slide", "Verify canvas shows slide title and body"],
+          "passes": true
+        },
+        {
+          "id": "7.2",
+          "description": "Canvas shows zoom controls",
+          "steps": ["Verify zoom in/out buttons visible", "Click zoom in", "Verify canvas zooms"],
+          "passes": true
+        },
+        {
+          "id": "7.3",
+          "description": "Canvas shows safe area guides",
+          "steps": ["Enable safe area guides", "Verify guide overlays appear on canvas"],
+          "passes": true
+        },
+        {
+          "id": "7.4",
+          "description": "Canvas updates aspect ratio based on deck settings",
+          "steps": ["Change deck aspect ratio", "Verify canvas shape updates accordingly"],
+          "passes": true
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "Deck Editor - Properties Inspector",
+      "description": "Right panel properties editing",
+      "priority": 8,
+      "tests": [
+        {
+          "id": "8.1",
+          "description": "Inspector shows slide properties when slide selected",
+          "steps": ["Select a slide", "Verify inspector shows slide title", "Verify background options", "Verify layout options"],
+          "passes": true
+        },
+        {
+          "id": "8.2",
+          "description": "User can edit slide title in inspector",
+          "steps": ["Select slide", "Edit title in inspector", "Verify canvas updates"],
+          "passes": true
+        },
+        {
+          "id": "8.3",
+          "description": "User can change slide background color",
+          "steps": ["Select slide", "Pick background color", "Verify canvas background updates"],
+          "passes": true
+        },
+        {
+          "id": "8.4",
+          "description": "User can select slide layout template",
+          "steps": ["Select slide", "Choose layout from dropdown", "Verify slide layout changes"],
+          "passes": true
+        },
+        {
+          "id": "8.5",
+          "description": "User can set slide transition",
+          "steps": ["Select slide", "Choose transition type", "Verify transition saved"],
+          "passes": true
+        },
+        {
+          "id": "8.6",
+          "description": "User can set slide duration manually",
+          "steps": ["Select slide", "Enter duration in seconds", "Verify duration saved"],
+          "passes": true
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "name": "Speaker Notes and Scripts",
+      "description": "Per-slide script editing",
+      "priority": 9,
+      "tests": [
+        {
+          "id": "9.1",
+          "description": "Script tab shows per-slide speaker notes editor",
+          "steps": ["Open deck editor", "Click Script tab", "Verify text editor displays"],
+          "passes": true
+        },
+        {
+          "id": "9.2",
+          "description": "User can edit speaker notes for a slide",
+          "steps": ["Select slide", "Type in script editor", "Verify text saved"],
+          "passes": true
+        },
+        {
+          "id": "9.3",
+          "description": "Script editor supports markdown formatting",
+          "steps": ["Enter markdown text", "Verify preview shows formatted text"],
+          "passes": false
+        },
+        {
+          "id": "9.4",
+          "description": "Switching slides updates script editor content",
+          "steps": ["Edit script on slide 1", "Select slide 2", "Verify different script shown", "Select slide 1", "Verify original script shown"],
+          "passes": true
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "name": "Asset Upload",
+      "description": "File upload and asset management",
+      "priority": 10,
+      "tests": [
+        {
+          "id": "10.1",
+          "description": "User can upload an image asset",
+          "steps": ["Click upload button", "Select image file", "Verify upload completes", "Verify asset appears in library"],
+          "passes": false
+        },
+        {
+          "id": "10.2",
+          "description": "User can view uploaded assets in asset library",
+          "steps": ["Open asset library", "Verify uploaded assets display", "Verify thumbnails shown"],
+          "passes": false
+        },
+        {
+          "id": "10.3",
+          "description": "User can delete an asset",
+          "steps": ["Select asset", "Click delete", "Confirm", "Verify asset removed"],
+          "passes": false
+        },
+        {
+          "id": "10.4",
+          "description": "User can set asset as slide background",
+          "steps": ["Select slide", "Open background picker", "Select uploaded image", "Verify slide background updates"],
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "name": "PPTX Import",
+      "description": "Import PowerPoint files",
+      "priority": 11,
+      "tests": [
+        {
+          "id": "11.1",
+          "description": "Import modal shows PPTX upload option",
+          "steps": ["Click Import", "Verify PPTX option visible", "Verify file drop zone"],
+          "passes": false
+        },
+        {
+          "id": "11.2",
+          "description": "User can upload PPTX file",
+          "steps": ["Click Import", "Select PPTX file", "Verify file accepted"],
+          "passes": false
+        },
+        {
+          "id": "11.3",
+          "description": "PPTX import creates slides from each page",
+          "steps": ["Upload PPTX", "Wait for processing", "Verify slides created matching page count"],
+          "passes": false
+        },
+        {
+          "id": "11.4",
+          "description": "Import progress shows via SSE updates",
+          "steps": ["Upload PPTX", "Verify progress bar displays", "Verify percentage updates"],
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "name": "PDF Import",
+      "description": "Import PDF files",
+      "priority": 12,
+      "tests": [
+        {
+          "id": "12.1",
+          "description": "Import modal shows PDF upload option",
+          "steps": ["Click Import", "Verify PDF option visible"],
+          "passes": false
+        },
+        {
+          "id": "12.2",
+          "description": "User can upload PDF file",
+          "steps": ["Click Import", "Select PDF file", "Verify file accepted"],
+          "passes": false
+        },
+        {
+          "id": "12.3",
+          "description": "PDF import creates slides from each page",
+          "steps": ["Upload PDF", "Wait for processing", "Verify slides created matching page count"],
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "name": "AI Slide Generation",
+      "description": "Generate slides from prompts or notes",
+      "priority": 13,
+      "tests": [
+        {
+          "id": "13.1",
+          "description": "AI generation wizard is accessible from deck",
+          "steps": ["Open deck", "Click 'Generate Slides' button", "Verify wizard modal opens"],
+          "passes": false
+        },
+        {
+          "id": "13.2",
+          "description": "User can enter prompt for slide generation",
+          "steps": ["Open generation wizard", "Enter topic prompt", "Verify prompt field accepts input"],
+          "passes": false
+        },
+        {
+          "id": "13.3",
+          "description": "AI generates outline from prompt",
+          "steps": ["Enter prompt", "Click generate outline", "Verify outline displays with sections"],
+          "passes": false
+        },
+        {
+          "id": "13.4",
+          "description": "User can generate slides from outline",
+          "steps": ["Review outline", "Click generate slides", "Verify slides created matching outline"],
+          "passes": false
+        },
+        {
+          "id": "13.5",
+          "description": "Generation progress shows via SSE",
+          "steps": ["Start generation", "Verify progress indicator updates"],
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "name": "AI Script Generation",
+      "description": "Generate narration scripts per slide",
+      "priority": 14,
+      "tests": [
+        {
+          "id": "14.1",
+          "description": "Script generation button available in script tab",
+          "steps": ["Open Script tab", "Verify 'Generate Script' button visible"],
+          "passes": false
+        },
+        {
+          "id": "14.2",
+          "description": "User can generate script for single slide",
+          "steps": ["Select slide", "Click 'Generate Script'", "Verify script generated and displayed"],
+          "passes": false
+        },
+        {
+          "id": "14.3",
+          "description": "User can generate scripts for all slides",
+          "steps": ["Click 'Generate All Scripts'", "Verify all slides get scripts"],
+          "passes": false
+        },
+        {
+          "id": "14.4",
+          "description": "Script generation offers duration targets",
+          "steps": ["Open generation options", "Verify 15s/30s/60s options", "Select duration", "Generate", "Verify script length appropriate"],
+          "passes": false
+        },
+        {
+          "id": "14.5",
+          "description": "User can regenerate script for slide",
+          "steps": ["Select slide with script", "Click 'Regenerate'", "Verify new script generated"],
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "name": "Voice Profiles",
+      "description": "TTS voice profile management",
+      "priority": 15,
+      "tests": [
+        {
+          "id": "15.1",
+          "description": "Voice profiles list is accessible",
+          "steps": ["Navigate to voice profiles", "Verify list displays"],
+          "passes": false
+        },
+        {
+          "id": "15.2",
+          "description": "User can create a voice profile",
+          "steps": ["Click 'New Voice Profile'", "Enter name", "Select provider and voice", "Save", "Verify profile in list"],
+          "passes": false
+        },
+        {
+          "id": "15.3",
+          "description": "User can edit voice profile settings",
+          "steps": ["Select profile", "Edit speed/pitch settings", "Save", "Verify settings saved"],
+          "passes": false
+        },
+        {
+          "id": "15.4",
+          "description": "User can delete a voice profile",
+          "steps": ["Select profile", "Click delete", "Confirm", "Verify removed"],
+          "passes": false
+        },
+        {
+          "id": "15.5",
+          "description": "Voice profile includes pronunciation lexicon",
+          "steps": ["Open profile", "Add pronunciation entry", "Save", "Verify entry saved"],
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "name": "TTS Voiceover Generation",
+      "description": "Generate voice audio from scripts",
+      "priority": 16,
+      "tests": [
+        {
+          "id": "16.1",
+          "description": "Audio tab shows voiceover controls",
+          "steps": ["Open Audio tab", "Verify voice picker visible", "Verify generate button visible"],
+          "passes": true
+        },
+        {
+          "id": "16.2",
+          "description": "User can select voice for slide",
+          "steps": ["Open Audio tab", "Click voice picker", "Select voice", "Verify voice selected"],
+          "passes": true
+        },
+        {
+          "id": "16.3",
+          "description": "User can generate voiceover for slide",
+          "steps": ["Select slide with script", "Select voice", "Click generate", "Verify audio generated"],
+          "passes": false
+        },
+        {
+          "id": "16.4",
+          "description": "Generated audio shows waveform preview",
+          "steps": ["Generate voiceover", "Verify waveform displays"],
+          "passes": false
+        },
+        {
+          "id": "16.5",
+          "description": "User can play generated voiceover",
+          "steps": ["Generate voiceover", "Click play", "Verify audio plays"],
+          "passes": false
+        },
+        {
+          "id": "16.6",
+          "description": "Batch voiceover generation for all slides",
+          "steps": ["Click 'Generate All Voiceovers'", "Verify progress for each slide", "Verify all slides get audio"],
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "name": "Timeline",
+      "description": "Bottom timeline for scene arrangement",
+      "priority": 17,
+      "tests": [
+        {
+          "id": "17.1",
+          "description": "Timeline shows slide scene blocks",
+          "steps": ["Open deck with slides", "Verify timeline shows blocks for each slide"],
+          "passes": true
+        },
+        {
+          "id": "17.2",
+          "description": "Scene blocks show duration",
+          "steps": ["Verify each block shows time duration"],
+          "passes": true
+        },
+        {
+          "id": "17.3",
+          "description": "Timeline shows audio track lane",
+          "steps": ["Verify voiceover audio track visible below scenes"],
+          "passes": false
+        },
+        {
+          "id": "17.4",
+          "description": "Playhead can be scrubbed along timeline",
+          "steps": ["Drag playhead", "Verify playhead moves", "Verify canvas updates to match position"],
+          "passes": false
+        },
+        {
+          "id": "17.5",
+          "description": "Scene duration auto-updates from voiceover",
+          "steps": ["Generate voiceover", "Verify scene block width updates to match audio duration"],
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "name": "Preview Playback",
+      "description": "In-editor preview player",
+      "priority": 18,
+      "tests": [
+        {
+          "id": "18.1",
+          "description": "Play button starts preview playback",
+          "steps": ["Click play button", "Verify slides advance", "Verify audio plays if present"],
+          "passes": true
+        },
+        {
+          "id": "18.2",
+          "description": "Pause button stops playback",
+          "steps": ["Start playback", "Click pause", "Verify playback stops"],
+          "passes": true
+        },
+        {
+          "id": "18.3",
+          "description": "Current time display updates during playback",
+          "steps": ["Start playback", "Verify time indicator increments"],
+          "passes": true
+        },
+        {
+          "id": "18.4",
+          "description": "Clicking timeline jumps to position",
+          "steps": ["Click on timeline at specific point", "Verify playhead jumps", "Verify canvas shows correct slide"],
+          "passes": true
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "name": "Captions",
+      "description": "Caption generation and editing",
+      "priority": 19,
+      "tests": [
+        {
+          "id": "19.1",
+          "description": "Captions tab is accessible",
+          "steps": ["Click Captions tab", "Verify caption editor displays"],
+          "passes": true
+        },
+        {
+          "id": "19.2",
+          "description": "User can auto-generate captions from voiceover",
+          "steps": ["Have slides with voiceovers", "Click 'Generate Captions'", "Verify captions created"],
+          "passes": false
+        },
+        {
+          "id": "19.3",
+          "description": "User can edit caption text",
+          "steps": ["Select caption", "Edit text", "Save", "Verify changes saved"],
+          "passes": false
+        },
+        {
+          "id": "19.4",
+          "description": "User can adjust caption timing",
+          "steps": ["Select caption", "Adjust start/end time", "Verify timing updated"],
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "name": "Video Rendering",
+      "description": "Export video using ffmpeg",
+      "priority": 20,
+      "tests": [
+        {
+          "id": "20.1",
+          "description": "Render button opens render settings modal",
+          "steps": ["Click Render button", "Verify modal opens", "Verify quality options visible"],
+          "passes": false
+        },
+        {
+          "id": "20.2",
+          "description": "User can select preview vs final quality",
+          "steps": ["Open render modal", "Verify Preview option", "Verify Final option"],
+          "passes": false
+        },
+        {
+          "id": "20.3",
+          "description": "Preview render completes successfully",
+          "steps": ["Select Preview quality", "Click Render", "Verify render completes", "Verify output file created"],
+          "passes": false
+        },
+        {
+          "id": "20.4",
+          "description": "Render progress shows via SSE",
+          "steps": ["Start render", "Verify progress bar updates", "Verify current step shown"],
+          "passes": false
+        },
+        {
+          "id": "20.5",
+          "description": "User can download rendered video",
+          "steps": ["Complete render", "Click download", "Verify file downloads"],
+          "passes": false
+        },
+        {
+          "id": "20.6",
+          "description": "Render history shows past renders",
+          "steps": ["Complete a render", "View render history", "Verify past render listed with date and settings"],
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "name": "Export Options",
+      "description": "Various export formats",
+      "priority": 21,
+      "tests": [
+        {
+          "id": "21.1",
+          "description": "Export menu shows available formats",
+          "steps": ["Click Export", "Verify MP4 option", "Verify PDF option", "Verify captions (SRT/VTT) option"],
+          "passes": false
+        },
+        {
+          "id": "21.2",
+          "description": "User can export captions as SRT",
+          "steps": ["Have captions", "Export as SRT", "Verify file downloads"],
+          "passes": false
+        },
+        {
+          "id": "21.3",
+          "description": "User can export deck as PDF",
+          "steps": ["Click Export PDF", "Verify PDF downloads with slides"],
+          "passes": false
+        },
+        {
+          "id": "21.4",
+          "description": "User can export audio only as MP3",
+          "steps": ["Click Export Audio", "Verify MP3 downloads"],
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "name": "Sharing",
+      "description": "Share links for review",
+      "priority": 22,
+      "tests": [
+        {
+          "id": "22.1",
+          "description": "Share button opens share modal",
+          "steps": ["Click Share button", "Verify modal opens"],
+          "passes": false
+        },
+        {
+          "id": "22.2",
+          "description": "User can generate share link",
+          "steps": ["Open share modal", "Click 'Generate Link'", "Verify link displayed"],
+          "passes": false
+        },
+        {
+          "id": "22.3",
+          "description": "Share link opens read-only view",
+          "steps": ["Copy share link", "Open in new browser", "Verify deck viewable", "Verify editing disabled"],
+          "passes": false
+        },
+        {
+          "id": "22.4",
+          "description": "User can revoke share link",
+          "steps": ["Open share modal", "Click revoke", "Verify link no longer works"],
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "name": "Deck Settings",
+      "description": "Global deck configuration",
+      "priority": 23,
+      "tests": [
+        {
+          "id": "23.1",
+          "description": "Deck settings accessible from menu",
+          "steps": ["Click deck settings", "Verify settings panel opens"],
+          "passes": true
+        },
+        {
+          "id": "23.2",
+          "description": "User can set resolution (1080p/4K)",
+          "steps": ["Open settings", "Change resolution", "Verify setting saved"],
+          "passes": true
+        },
+        {
+          "id": "23.3",
+          "description": "User can set aspect ratio (16:9, 9:16, 1:1)",
+          "steps": ["Open settings", "Change aspect ratio", "Verify canvas updates"],
+          "passes": true
+        },
+        {
+          "id": "23.4",
+          "description": "User can enable/disable intro scene",
+          "steps": ["Open settings", "Toggle intro scene", "Verify setting saved"],
+          "passes": true
+        },
+        {
+          "id": "23.5",
+          "description": "User can enable/disable outro scene",
+          "steps": ["Open settings", "Toggle outro scene", "Verify setting saved"],
+          "passes": true
+        },
+        {
+          "id": "23.6",
+          "description": "User can set captions on/off",
+          "steps": ["Open settings", "Toggle captions", "Verify setting saved"],
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "name": "Dark Mode",
+      "description": "Theme toggle support",
+      "priority": 24,
+      "tests": [
+        {
+          "id": "24.1",
+          "description": "Theme toggle is accessible",
+          "steps": ["Find theme toggle in settings or header", "Verify toggle visible"],
+          "passes": true
+        },
+        {
+          "id": "24.2",
+          "description": "Dark mode applies correctly",
+          "steps": ["Toggle to dark mode", "Verify background darkens", "Verify text readable", "Verify all UI elements visible"],
+          "passes": true
+        },
+        {
+          "id": "24.3",
+          "description": "Light mode applies correctly",
+          "steps": ["Toggle to light mode", "Verify background lightens", "Verify text readable"],
+          "passes": true
+        },
+        {
+          "id": "24.4",
+          "description": "Theme preference persists across sessions",
+          "steps": ["Set theme", "Refresh page", "Verify theme preserved"],
+          "passes": true
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "name": "Keyboard Shortcuts",
+      "description": "Keyboard navigation and shortcuts",
+      "priority": 25,
+      "tests": [
+        {
+          "id": "25.1",
+          "description": "Command palette opens with Cmd/Ctrl+K",
+          "steps": ["Press Cmd/Ctrl+K", "Verify command palette opens"],
+          "passes": false
+        },
+        {
+          "id": "25.2",
+          "description": "Undo works with Cmd/Ctrl+Z",
+          "steps": ["Make change", "Press Cmd/Ctrl+Z", "Verify change undone"],
+          "passes": false
+        },
+        {
+          "id": "25.3",
+          "description": "Redo works with Cmd/Ctrl+Shift+Z",
+          "steps": ["Undo a change", "Press Cmd/Ctrl+Shift+Z", "Verify change redone"],
+          "passes": false
+        },
+        {
+          "id": "25.4",
+          "description": "Delete key removes selected slide",
+          "steps": ["Select slide", "Press Delete", "Verify slide removed"],
+          "passes": true
+        },
+        {
+          "id": "25.5",
+          "description": "Arrow keys navigate between slides",
+          "steps": ["Select slide", "Press arrow key", "Verify next/prev slide selected"],
+          "passes": true
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "name": "Job Queue Status",
+      "description": "Background job monitoring",
+      "priority": 26,
+      "tests": [
+        {
+          "id": "26.1",
+          "description": "Active jobs shown in status area",
+          "steps": ["Start a job (import/render)", "Verify job appears in status area"],
+          "passes": false
+        },
+        {
+          "id": "26.2",
+          "description": "Job progress updates in real-time",
+          "steps": ["Start job", "Verify progress percentage updates"],
+          "passes": false
+        },
+        {
+          "id": "26.3",
+          "description": "Completed jobs show success indicator",
+          "steps": ["Wait for job completion", "Verify success status shown"],
+          "passes": false
+        },
+        {
+          "id": "26.4",
+          "description": "Failed jobs show error message",
+          "steps": ["Trigger job failure", "Verify error message displayed"],
+          "passes": false
+        },
+        {
+          "id": "26.5",
+          "description": "User can retry failed jobs",
+          "steps": ["Have failed job", "Click retry", "Verify job restarts"],
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "name": "Responsive Design",
+      "description": "Layout adapts to screen size",
+      "priority": 27,
+      "tests": [
+        {
+          "id": "27.1",
+          "description": "Desktop layout shows all panels",
+          "steps": ["View at 1440px width", "Verify all panels visible"],
+          "passes": false
+        },
+        {
+          "id": "27.2",
+          "description": "Tablet layout collapses side panels",
+          "steps": ["View at 768px width", "Verify panels collapsible", "Verify main content usable"],
+          "passes": false
+        },
+        {
+          "id": "27.3",
+          "description": "Mobile layout shows simplified view",
+          "steps": ["View at 375px width", "Verify review-only mode", "Verify playback controls accessible"],
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "name": "Error Handling",
+      "description": "Graceful error states",
+      "priority": 28,
+      "tests": [
+        {
+          "id": "28.1",
+          "description": "API errors show toast notifications",
+          "steps": ["Trigger API error", "Verify toast appears with error message"],
+          "passes": true
+        },
+        {
+          "id": "28.2",
+          "description": "Form validation shows inline errors",
+          "steps": ["Submit invalid form", "Verify error messages appear near fields"],
+          "passes": false
+        },
+        {
+          "id": "28.3",
+          "description": "Empty states show helpful messages",
+          "steps": ["View empty course list", "Verify helpful empty state with CTA"],
+          "passes": true
+        },
+        {
+          "id": "28.4",
+          "description": "404 page shows for invalid routes",
+          "steps": ["Navigate to invalid URL", "Verify 404 page displayed"],
+          "passes": true
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "name": "Loading States",
+      "description": "Visual feedback during async operations",
+      "priority": 29,
+      "tests": [
+        {
+          "id": "29.1",
+          "description": "Skeleton loaders show during data fetch",
+          "steps": ["Navigate to courses", "Verify skeleton loaders during load"],
+          "passes": false
+        },
+        {
+          "id": "29.2",
+          "description": "Button shows loading state during submit",
+          "steps": ["Click submit button", "Verify button shows spinner", "Verify button disabled"],
+          "passes": true
+        },
+        {
+          "id": "29.3",
+          "description": "Large uploads show progress indicator",
+          "steps": ["Upload large file", "Verify progress bar visible"],
+          "passes": false
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "name": "Data Persistence",
+      "description": "Data correctly saved and retrieved",
+      "priority": 30,
+      "tests": [
+        {
+          "id": "30.1",
+          "description": "Course data persists after page refresh",
+          "steps": ["Create course", "Refresh page", "Verify course still exists"],
+          "passes": true
+        },
+        {
+          "id": "30.2",
+          "description": "Slide edits persist after navigation",
+          "steps": ["Edit slide", "Navigate away", "Return to slide", "Verify edits preserved"],
+          "passes": true
+        },
+        {
+          "id": "30.3",
+          "description": "User preferences persist across sessions",
+          "steps": ["Change theme/layout preference", "Log out", "Log in", "Verify preferences preserved"],
+          "passes": true
+        }
+      ]
+    }
+  ]
+}
