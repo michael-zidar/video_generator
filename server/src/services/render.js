@@ -231,11 +231,31 @@ async function renderSlideToImage(browser, slide, width, height, outputPath) {
 
 /**
  * Get voiceover audio path for a slide
+ * Checks recorded voiceovers first, then falls back to generated voiceovers
  */
 function getVoiceoverPath(slideId) {
-  const voiceover = get('SELECT * FROM voiceovers WHERE slide_id = ? AND status = ?', [slideId, 'succeeded']);
+  // First check for active recording
+  const recording = get(
+    'SELECT audio_asset_id FROM recorded_voiceovers WHERE slide_id = ? AND is_active = 1',
+    [slideId]
+  );
+
+  if (recording && recording.audio_asset_id) {
+    const relativePath = recording.audio_asset_id;
+    if (relativePath.startsWith('/data/')) {
+      return path.join(DATA_DIR, '..', relativePath);
+    }
+    return path.join(DATA_DIR, 'assets/audio', relativePath);
+  }
+
+  // Fall back to generated voiceover
+  const voiceover = get(
+    'SELECT audio_asset_id FROM voiceovers WHERE slide_id = ? AND status = ? AND is_active = 1',
+    [slideId, 'succeeded']
+  );
+
   if (!voiceover || !voiceover.audio_asset_id) return null;
-  
+
   // audio_asset_id contains relative path like /data/assets/audio/filename.mp3
   const relativePath = voiceover.audio_asset_id;
   if (relativePath.startsWith('/data/')) {

@@ -54,11 +54,11 @@ router.post('/save-key', async (req, res) => {
       return res.status(400).json({ error: 'API key is required' });
     }
     
-    // Get current preferences
-    const user = get('SELECT preferences FROM users WHERE id = ?', [userId]);
+    // Get current preferences from user_preferences table
+    const userPref = get('SELECT preferences FROM user_preferences WHERE user_id = ?', [userId]);
     let preferences = {};
     try {
-      preferences = JSON.parse(user?.preferences || '{}');
+      preferences = JSON.parse(userPref?.preferences || '{}');
     } catch (e) {
       preferences = {};
     }
@@ -66,10 +66,18 @@ router.post('/save-key', async (req, res) => {
     // Save the API key (in production, this should be encrypted)
     preferences.notion_api_key = api_key;
     
-    run('UPDATE users SET preferences = ? WHERE id = ?', [
-      JSON.stringify(preferences),
-      userId,
-    ]);
+    // Upsert user preferences
+    if (userPref) {
+      run('UPDATE user_preferences SET preferences = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?', [
+        JSON.stringify(preferences),
+        userId,
+      ]);
+    } else {
+      run('INSERT INTO user_preferences (user_id, preferences) VALUES (?, ?)', [
+        userId,
+        JSON.stringify(preferences),
+      ]);
+    }
     
     res.json({ success: true, message: 'Notion API key saved' });
   } catch (error) {
@@ -86,11 +94,11 @@ router.delete('/remove-key', async (req, res) => {
   try {
     const userId = req.user.id;
     
-    // Get current preferences
-    const user = get('SELECT preferences FROM users WHERE id = ?', [userId]);
+    // Get current preferences from user_preferences table
+    const userPref = get('SELECT preferences FROM user_preferences WHERE user_id = ?', [userId]);
     let preferences = {};
     try {
-      preferences = JSON.parse(user?.preferences || '{}');
+      preferences = JSON.parse(userPref?.preferences || '{}');
     } catch (e) {
       preferences = {};
     }
@@ -98,10 +106,12 @@ router.delete('/remove-key', async (req, res) => {
     // Remove the API key
     delete preferences.notion_api_key;
     
-    run('UPDATE users SET preferences = ? WHERE id = ?', [
-      JSON.stringify(preferences),
-      userId,
-    ]);
+    if (userPref) {
+      run('UPDATE user_preferences SET preferences = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?', [
+        JSON.stringify(preferences),
+        userId,
+      ]);
+    }
     
     res.json({ success: true, message: 'Notion API key removed' });
   } catch (error) {
@@ -118,10 +128,11 @@ router.get('/status', async (req, res) => {
   try {
     const userId = req.user.id;
     
-    const user = get('SELECT preferences FROM users WHERE id = ?', [userId]);
+    // Get preferences from user_preferences table
+    const userPref = get('SELECT preferences FROM user_preferences WHERE user_id = ?', [userId]);
     let preferences = {};
     try {
-      preferences = JSON.parse(user?.preferences || '{}');
+      preferences = JSON.parse(userPref?.preferences || '{}');
     } catch (e) {
       preferences = {};
     }
@@ -153,11 +164,11 @@ router.get('/pages', async (req, res) => {
     const userId = req.user.id;
     const { query } = req.query;
     
-    // Get API key from preferences
-    const user = get('SELECT preferences FROM users WHERE id = ?', [userId]);
+    // Get API key from user_preferences table
+    const userPref = get('SELECT preferences FROM user_preferences WHERE user_id = ?', [userId]);
     let preferences = {};
     try {
-      preferences = JSON.parse(user?.preferences || '{}');
+      preferences = JSON.parse(userPref?.preferences || '{}');
     } catch (e) {
       preferences = {};
     }
@@ -183,11 +194,11 @@ router.get('/pages/:pageId/preview', async (req, res) => {
     const userId = req.user.id;
     const { pageId } = req.params;
     
-    // Get API key from preferences
-    const user = get('SELECT preferences FROM users WHERE id = ?', [userId]);
+    // Get API key from user_preferences table
+    const userPref = get('SELECT preferences FROM user_preferences WHERE user_id = ?', [userId]);
     let preferences = {};
     try {
-      preferences = JSON.parse(user?.preferences || '{}');
+      preferences = JSON.parse(userPref?.preferences || '{}');
     } catch (e) {
       preferences = {};
     }
@@ -207,11 +218,12 @@ router.get('/pages/:pageId/preview', async (req, res) => {
 /**
  * POST /api/notion/import
  * Import a Notion page as slides using AI
+ * If target_slides is not provided, AI will automatically determine optimal count
  */
 router.post('/import', async (req, res) => {
   try {
     const userId = req.user.id;
-    const { page_id, deck_id, target_slides = 8 } = req.body;
+    const { page_id, deck_id, target_slides } = req.body;
     
     if (!page_id) {
       return res.status(400).json({ error: 'page_id is required' });
@@ -233,11 +245,11 @@ router.post('/import', async (req, res) => {
       return res.status(404).json({ error: 'Deck not found' });
     }
     
-    // Get API key from preferences
-    const user = get('SELECT preferences FROM users WHERE id = ?', [userId]);
+    // Get API key from user_preferences table
+    const userPref = get('SELECT preferences FROM user_preferences WHERE user_id = ?', [userId]);
     let preferences = {};
     try {
-      preferences = JSON.parse(user?.preferences || '{}');
+      preferences = JSON.parse(userPref?.preferences || '{}');
     } catch (e) {
       preferences = {};
     }
@@ -250,7 +262,13 @@ router.post('/import', async (req, res) => {
     const content = await getPageContent(preferences.notion_api_key, page_id);
     
     // Use AI to structure content into slides
-    const slides = await generateSlidesFromNotionContent(content.markdown, target_slides);
+    // If target_slides is null/undefined, AI will infer optimal count using Gemini
+    const numSlides = target_slides ? parseInt(target_slides) : null;
+    const result = await generateSlidesFromNotionContent(content.markdown, numSlides, {
+      contentType: 'notion',
+    });
+    
+    const slides = result.slides;
     
     // Insert slides into database
     const insertedSlides = [];
@@ -283,6 +301,13 @@ router.post('/import', async (req, res) => {
         blockCount: content.blockCount,
       },
       slides: insertedSlides,
+      // Include inference info if slide count was auto-determined
+      ...(result.inferredCount && {
+        inference: {
+          slideCount: result.inferredCount.slideCount,
+          reasoning: result.inferredCount.reasoning,
+        },
+      }),
     });
   } catch (error) {
     console.error('Import Notion page error:', error);

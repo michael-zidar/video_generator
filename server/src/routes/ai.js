@@ -1,4 +1,9 @@
 import express from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { v4 as uuidv4 } from 'uuid';
 import { get, all, run, insert, saveDatabase } from '../db.js';
 import {
   generateOutline,
@@ -6,6 +11,8 @@ import {
   generateScript,
   generateEnhancedSpeakerNotes,
   generateSlidesFromOutline,
+  generateSlidesFromNotionContent,
+  inferOptimalSlideCount,
   getAIStatus
 } from '../services/ai.js';
 import {
@@ -21,6 +28,43 @@ import {
   getImageGenerationStatus,
   isImageGenerationConfigured,
 } from '../services/image-generation.js';
+import {
+  transcribeRecording,
+  getTranscriptionStatus,
+} from '../services/transcription.js';
+import { getAudioDuration } from '../services/tts.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const AUDIO_DIR = path.join(__dirname, '../../../data/assets/audio');
+
+// Ensure audio directory exists
+if (!fs.existsSync(AUDIO_DIR)) {
+  fs.mkdirSync(AUDIO_DIR, { recursive: true });
+}
+
+// Multer configuration for recording uploads
+const recordingStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, AUDIO_DIR);
+  },
+  filename: (req, file, cb) => {
+    const timestamp = Date.now();
+    const randomId = uuidv4().substring(0, 10);
+    cb(null, `recording_${timestamp}_${randomId}.webm`);
+  }
+});
+
+const uploadRecording = multer({
+  storage: recordingStorage,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('audio/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only audio files are allowed'));
+    }
+  }
+});
 
 const router = express.Router();
 
@@ -131,6 +175,99 @@ router.post('/slides/generate', async (req, res) => {
     });
   } catch (error) {
     console.error('Slide generation error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/ai/slides/import-notes - Import slides from notes with dynamic slide count
+router.post('/slides/import-notes', async (req, res) => {
+  try {
+    const { deck_id, notes, target_slides } = req.body;
+    
+    if (!deck_id) {
+      return res.status(400).json({ error: 'deck_id is required' });
+    }
+    
+    if (!notes || notes.trim().length === 0) {
+      return res.status(400).json({ error: 'notes content is required' });
+    }
+
+    // Verify deck exists
+    const deck = get('SELECT * FROM decks WHERE id = ?', [deck_id]);
+    if (!deck) {
+      return res.status(404).json({ error: 'Deck not found' });
+    }
+
+    // Generate slides from notes content
+    // If target_slides is null/undefined, AI will infer optimal count using Gemini
+    const numSlides = target_slides ? parseInt(target_slides) : null;
+    const result = await generateSlidesFromNotionContent(notes, numSlides, {
+      contentType: 'notes',
+    });
+    
+    const slidesData = result.slides;
+
+    // Get current max position
+    const maxPosResult = get('SELECT MAX(position) as maxPos FROM slides WHERE deck_id = ?', [deck_id]);
+    let position = (maxPosResult?.maxPos ?? -1) + 1;
+
+    // Insert slides into database
+    const createdSlides = [];
+    for (const slide of slidesData) {
+      const slideId = insert(
+        `INSERT INTO slides (deck_id, position, title, body, speaker_notes, duration_ms, background_color, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+        [deck_id, position, slide.title, JSON.stringify(slide.body), slide.speaker_notes || '', 5000, slide.background_color || '#ffffff']
+      );
+      
+      createdSlides.push({
+        id: slideId,
+        deck_id,
+        position: position,
+        title: slide.title,
+        body: slide.body,
+        speaker_notes: slide.speaker_notes || '',
+        duration_ms: 5000,
+        background_color: slide.background_color || '#ffffff',
+      });
+      position++;
+    }
+
+    res.json({ 
+      slides: createdSlides,
+      count: createdSlides.length,
+      // Include inference info if slide count was auto-determined
+      ...(result.inferredCount && {
+        inference: {
+          slideCount: result.inferredCount.slideCount,
+          reasoning: result.inferredCount.reasoning,
+        },
+      }),
+    });
+  } catch (error) {
+    console.error('Notes import error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/ai/infer-slide-count - Infer optimal slide count for content
+router.post('/infer-slide-count', async (req, res) => {
+  try {
+    const { content, content_type = 'notes', min_slides = 3, max_slides = 20 } = req.body;
+    
+    if (!content || content.trim().length === 0) {
+      return res.status(400).json({ error: 'content is required' });
+    }
+
+    const result = await inferOptimalSlideCount(content, {
+      minSlides: min_slides,
+      maxSlides: max_slides,
+      contentType: content_type,
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('Slide count inference error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -483,20 +620,227 @@ router.post('/voiceover/generate-batch', async (req, res) => {
   }
 });
 
-// GET /api/ai/voiceover/:slideId - Get voiceover for a slide
+// GET /api/ai/voiceover/:slideId - Get voiceover for a slide (enhanced for recordings)
 router.get('/voiceover/:slideId', async (req, res) => {
   try {
-    const voiceover = get('SELECT * FROM voiceovers WHERE slide_id = ?', [req.params.slideId]);
-    
-    if (!voiceover) {
-      return res.status(404).json({ error: 'Voiceover not found' });
+    const slideId = req.params.slideId;
+
+    // Get generated voiceover
+    const generated = get('SELECT * FROM voiceovers WHERE slide_id = ?', [slideId]);
+
+    // Get active recording
+    const activeRecording = get(
+      'SELECT * FROM recorded_voiceovers WHERE slide_id = ? AND is_active = 1',
+      [slideId]
+    );
+
+    // Get all recordings for version history
+    const allRecordings = all(
+      `SELECT id, version_number, audio_asset_id as audio_url, duration_ms,
+              is_active, transcription, transcription_status, created_at
+       FROM recorded_voiceovers
+       WHERE slide_id = ?
+       ORDER BY version_number DESC`,
+      [slideId]
+    );
+
+    // Determine active source
+    let activeSource = null;
+    if (activeRecording) {
+      activeSource = 'recorded';
+    } else if (generated && generated.is_active) {
+      activeSource = 'generated';
     }
 
-    // Return with audio_url from stored audio_asset_id path
     res.json({
-      ...voiceover,
-      audio_url: voiceover.audio_asset_id, // audio_asset_id stores the relative path like /data/assets/audio/...
+      generated: generated ? {
+        ...generated,
+        audio_url: generated.audio_asset_id,
+        type: 'generated',
+      } : null,
+      active_recording: activeRecording ? {
+        ...activeRecording,
+        audio_url: activeRecording.audio_asset_id,
+        type: 'recorded',
+      } : null,
+      all_recordings: allRecordings,
+      active_source: activeSource,
     });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/ai/voiceover/upload-recording - Upload recorded audio for a slide
+router.post('/voiceover/upload-recording', uploadRecording.single('audio'), async (req, res) => {
+  try {
+    const { slide_id } = req.body;
+
+    if (!slide_id) {
+      return res.status(400).json({ error: 'slide_id is required' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'Audio file is required' });
+    }
+
+    // Verify slide exists
+    const slide = get('SELECT * FROM slides WHERE id = ?', [slide_id]);
+    if (!slide) {
+      return res.status(404).json({ error: 'Slide not found' });
+    }
+
+    // Get audio duration
+    const audioPath = req.file.path;
+    const duration_ms = await getAudioDuration(audioPath);
+
+    // Get next version number
+    const maxVersion = get(
+      'SELECT MAX(version_number) as max_ver FROM recorded_voiceovers WHERE slide_id = ?',
+      [slide_id]
+    );
+    const version_number = (maxVersion?.max_ver || 0) + 1;
+
+    // Deactivate previous recordings for this slide
+    run('UPDATE recorded_voiceovers SET is_active = 0 WHERE slide_id = ?', [slide_id]);
+
+    // Also deactivate generated voiceover
+    run('UPDATE voiceovers SET is_active = 0 WHERE slide_id = ?', [slide_id]);
+
+    // Insert new recording
+    const relativePath = `/data/assets/audio/${req.file.filename}`;
+    const recordingId = insert(
+      `INSERT INTO recorded_voiceovers
+       (slide_id, version_number, audio_asset_id, duration_ms, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 1, datetime('now'), datetime('now'))`,
+      [slide_id, version_number, relativePath, duration_ms]
+    );
+
+    // Update slide duration
+    run('UPDATE slides SET duration_ms = ?, updated_at = datetime("now") WHERE id = ?',
+      [duration_ms, slide_id]);
+
+    // Trigger transcription asynchronously (don't block response)
+    transcribeRecording(recordingId, audioPath).catch(err =>
+      console.error('Transcription failed:', err)
+    );
+
+    res.json({
+      id: recordingId,
+      slide_id: parseInt(slide_id),
+      version_number,
+      audio_url: relativePath,
+      duration_ms,
+      is_active: true,
+    });
+  } catch (error) {
+    console.error('Recording upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/ai/voiceover/recordings/:slideId - Get all recordings for a slide
+router.get('/voiceover/recordings/:slideId', async (req, res) => {
+  try {
+    const recordings = all(
+      `SELECT id, version_number, audio_asset_id as audio_url, duration_ms,
+              is_active, transcription, transcription_status, created_at
+       FROM recorded_voiceovers
+       WHERE slide_id = ?
+       ORDER BY version_number DESC`,
+      [req.params.slideId]
+    );
+
+    res.json({ recordings });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/ai/voiceover/set-active-recording - Switch to specific recording
+router.post('/voiceover/set-active-recording', async (req, res) => {
+  try {
+    const { recording_id } = req.body;
+
+    if (!recording_id) {
+      return res.status(400).json({ error: 'recording_id is required' });
+    }
+
+    const recording = get('SELECT * FROM recorded_voiceovers WHERE id = ?', [recording_id]);
+    if (!recording) {
+      return res.status(404).json({ error: 'Recording not found' });
+    }
+
+    // Deactivate all recordings for this slide
+    run('UPDATE recorded_voiceovers SET is_active = 0 WHERE slide_id = ?', [recording.slide_id]);
+
+    // Deactivate generated voiceover
+    run('UPDATE voiceovers SET is_active = 0 WHERE slide_id = ?', [recording.slide_id]);
+
+    // Activate selected recording
+    run('UPDATE recorded_voiceovers SET is_active = 1, updated_at = datetime("now") WHERE id = ?',
+      [recording_id]);
+
+    // Update slide duration
+    run('UPDATE slides SET duration_ms = ?, updated_at = datetime("now") WHERE id = ?',
+      [recording.duration_ms, recording.slide_id]);
+
+    res.json({ success: true, recording_id });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/ai/voiceover/set-active-generated - Switch to generated audio
+router.post('/voiceover/set-active-generated', async (req, res) => {
+  try {
+    const { slide_id } = req.body;
+
+    if (!slide_id) {
+      return res.status(400).json({ error: 'slide_id is required' });
+    }
+
+    const voiceover = get('SELECT * FROM voiceovers WHERE slide_id = ?', [slide_id]);
+    if (!voiceover) {
+      return res.status(404).json({ error: 'No generated voiceover found' });
+    }
+
+    // Deactivate all recordings
+    run('UPDATE recorded_voiceovers SET is_active = 0 WHERE slide_id = ?', [slide_id]);
+
+    // Activate generated voiceover
+    run('UPDATE voiceovers SET is_active = 1, updated_at = datetime("now") WHERE slide_id = ?',
+      [slide_id]);
+
+    // Update slide duration
+    run('UPDATE slides SET duration_ms = ?, updated_at = datetime("now") WHERE id = ?',
+      [voiceover.duration_ms, slide_id]);
+
+    res.json({ success: true, slide_id: parseInt(slide_id) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE /api/ai/voiceover/recording/:recordingId - Delete a recording version
+router.delete('/voiceover/recording/:recordingId', async (req, res) => {
+  try {
+    const recording = get('SELECT * FROM recorded_voiceovers WHERE id = ?', [req.params.recordingId]);
+
+    if (!recording) {
+      return res.status(404).json({ error: 'Recording not found' });
+    }
+
+    // Delete audio file
+    const audioPath = path.join(__dirname, '../../../', recording.audio_asset_id);
+    if (fs.existsSync(audioPath)) {
+      fs.unlinkSync(audioPath);
+    }
+
+    // Delete database record
+    run('DELETE FROM recorded_voiceovers WHERE id = ?', [req.params.recordingId]);
+
+    res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

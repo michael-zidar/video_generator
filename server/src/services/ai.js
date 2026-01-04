@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { inferOptimalSlideCount, isGeminiConfigured } from './gemini.js';
 
 // Initialize OpenAI client
 let openai = null;
@@ -16,6 +17,9 @@ const getOpenAIClient = () => {
   }
   return openai;
 };
+
+// Re-export Gemini utilities for use in routes
+export { inferOptimalSlideCount, isGeminiConfigured };
 
 /**
  * Available slide layout types with their schemas
@@ -562,22 +566,39 @@ export async function generateSlidesFromOutline(outline, context = '') {
  * Generate slides from Notion markdown content using AI
  * The AI analyzes the content structure and creates appropriately laid-out slides
  * @param {string} markdownContent - Markdown content from Notion page
- * @param {number} targetSlides - Target number of slides (default: 8)
- * @returns {Promise<Array<{title: string, body: object, speaker_notes: string, background_color?: string}>>}
+ * @param {number|null} targetSlides - Target number of slides (null = auto-infer)
+ * @param {object} options - Additional options
+ * @param {string} options.contentType - Type of content: 'notes' or 'notion'
+ * @returns {Promise<{slides: Array<{title: string, body: object, speaker_notes: string, background_color?: string}>, inferredCount?: {slideCount: number, reasoning: string, sections: string[]}}>}
  */
-export async function generateSlidesFromNotionContent(markdownContent, targetSlides = 8) {
+export async function generateSlidesFromNotionContent(markdownContent, targetSlides = null, options = {}) {
   const client = getOpenAIClient();
+  const { contentType = 'notion' } = options;
+  
+  // If no target slides specified, infer the optimal count using Gemini
+  let inferredCount = null;
+  let numSlides = targetSlides;
+  
+  if (numSlides === null || numSlides === undefined) {
+    inferredCount = await inferOptimalSlideCount(markdownContent, {
+      minSlides: 3,
+      maxSlides: 20,
+      contentType,
+    });
+    numSlides = inferredCount.slideCount;
+    console.log(`Inferred optimal slide count: ${numSlides} - ${inferredCount.reasoning}`);
+  }
   
   const layoutDescriptions = Object.entries(LAYOUT_TYPES)
     .map(([key, value]) => `- "${key}": ${value.description}`)
     .join('\n');
   
-  const systemPrompt = `You are an expert presentation designer. Your task is to analyze content from notes and transform it into a well-structured slide presentation.
+  const systemPrompt = `You are an expert presentation designer. Your task is to analyze content from ${contentType === 'notion' ? 'a Notion page' : 'notes'} and transform it into a well-structured slide presentation.
 
 Available layout types:
 ${layoutDescriptions}
 
-You will receive markdown content from notes. Analyze it and create ${targetSlides} slides that:
+You will receive markdown content. Analyze it and create ${numSlides} slides that:
 1. Capture the key ideas and structure
 2. Use appropriate layouts based on content type
 3. Maintain a logical flow from introduction to conclusion
@@ -608,11 +629,11 @@ Guidelines:
 - Extract key points, don't include everything
 - Return ONLY valid JSON, no markdown formatting`;
 
-  const userPrompt = `Transform this content into a ${targetSlides}-slide presentation:
+  const userPrompt = `Transform this content into a ${numSlides}-slide presentation:
 
 ${markdownContent}
 
-Create exactly ${targetSlides} slides with appropriate layouts. Return only JSON.`;
+Create exactly ${numSlides} slides with appropriate layouts. Return only JSON.`;
 
   const response = await client.chat.completions.create({
     model: MODEL,
@@ -638,12 +659,17 @@ Create exactly ${targetSlides} slides with appropriate layouts. Return only JSON
     const slides = JSON.parse(jsonStr);
     
     // Validate and ensure each slide has required fields
-    return slides.map((slide, index) => ({
+    const processedSlides = slides.map((slide, index) => ({
       title: slide.title || `Slide ${index + 1}`,
       body: slide.body || { layout: 'title-only' },
       speaker_notes: slide.speaker_notes || '',
       background_color: slide.background_color || '#ffffff',
     }));
+    
+    return {
+      slides: processedSlides,
+      inferredCount,
+    };
   } catch (e) {
     console.error('Failed to parse slides from Notion content:', content);
     throw new Error('Failed to parse AI response as JSON');
@@ -652,11 +678,12 @@ Create exactly ${targetSlides} slides with appropriate layouts. Return only JSON
 
 /**
  * Check if AI is configured and ready
- * @returns {{configured: boolean, provider: string, capabilities: string[]}}
+ * @returns {{configured: boolean, provider: string, capabilities: string[], gemini: {configured: boolean}}}
  */
 export function getAIStatus() {
   const apiKey = process.env.OPENAI_API_KEY;
   const isConfigured = apiKey && !apiKey.startsWith('sk-your-');
+  const geminiConfigured = isGeminiConfigured();
   
   return {
     configured: isConfigured,
@@ -667,6 +694,11 @@ export function getAIStatus() {
       'slide_content',
       'script_generation',
       'layout_variety',
+      ...(geminiConfigured ? ['dynamic_slide_count'] : []),
     ] : [],
+    gemini: {
+      configured: geminiConfigured,
+      model: 'gemini-2.0-flash',
+    },
   };
 }

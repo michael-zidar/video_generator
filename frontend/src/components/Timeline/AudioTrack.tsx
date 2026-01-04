@@ -20,13 +20,13 @@ interface AudioTrackProps {
   onSeek: (timeMs: number) => void
 }
 
-export function AudioTrack({ 
-  slides, 
-  voiceovers, 
-  currentTime, 
-  pixelsPerSecond, 
+export function AudioTrack({
+  slides,
+  voiceovers,
+  currentTime,
+  pixelsPerSecond,
   isPlaying,
-  onSeek 
+  onSeek
 }: AudioTrackProps) {
   // Calculate audio clip positions based on slide timings
   let accumulatedTime = 0
@@ -34,9 +34,9 @@ export function AudioTrack({
     const start = accumulatedTime
     const duration = slide.duration_ms || 5000
     accumulatedTime += duration
-    
+
     const voiceover = voiceovers.get(slide.id)
-    
+
     return {
       slideId: slide.id,
       start,

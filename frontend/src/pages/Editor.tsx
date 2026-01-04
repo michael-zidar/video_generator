@@ -67,6 +67,8 @@ import { VideoUploadDialog } from '@/components/VideoUploadDialog'
 import { Timeline } from '@/components/Timeline'
 import { SlideCanvas } from '@/components/Canvas'
 import { SlideThumbnail } from '@/components/Timeline/SlideThumbnail'
+import { RecordingControls } from '@/components/Timeline/RecordingControls'
+import { RecordingVersionHistory } from '@/components/Timeline/RecordingVersionHistory'
 import { migrateSlideToElements, isElementBasedFormat } from '@/utils/slideMigration'
 import { Presentation, FileDown, Loader2, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, PenTool, Eye, Edit3, Sparkles } from 'lucide-react'
 import Markdown from 'react-markdown'
@@ -246,6 +248,7 @@ export function Editor() {
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false)
   const [voiceovers, setVoiceovers] = useState<Map<number, { audio_url: string; duration_ms: number }>>(new Map())
   const [playingAudio, setPlayingAudio] = useState<HTMLAudioElement | null>(null)
+  const [showVersionHistory, setShowVersionHistory] = useState(false)
   const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false)
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false)
   const [showRenderDialog, setShowRenderDialog] = useState(false)
@@ -544,7 +547,7 @@ export function Editor() {
   const fetchVoiceovers = async (slidesList: Slide[]) => {
     const newVoiceovers = new Map<number, { audio_url: string; duration_ms: number }>()
     const token = await getTokenRef.current()
-    
+
     for (const slide of slidesList) {
       try {
         const response = await fetch(`${API_BASE_URL}/api/ai/voiceover/${slide.id}`, {
@@ -552,16 +555,26 @@ export function Editor() {
         })
         if (response.ok) {
           const data = await response.json()
-          // Only add if we have a valid audio URL or asset ID (not null/undefined)
-          const rawUrl = data.audio_url || data.audio_asset_id
-          if (rawUrl && rawUrl !== 'null' && data.status === 'succeeded') {
-            // Get the audio URL from stored path - ensure full URL
-            const audioUrl = getFullAudioUrl(rawUrl)
-            if (audioUrl && audioUrl !== `${API_BASE_URL}/null`) {
-              newVoiceovers.set(slide.id, {
-                audio_url: audioUrl,
-                duration_ms: data.duration_ms || slide.duration_ms || 5000,
-              })
+
+          // Use active recording if available, otherwise use generated
+          const activeAudio = data.active_recording || data.generated
+
+          if (activeAudio) {
+            // For generated audio, check status
+            if (activeAudio.type === 'generated' && activeAudio.status !== 'succeeded') {
+              continue
+            }
+
+            const rawUrl = activeAudio.audio_url || activeAudio.audio_asset_id
+            if (rawUrl && rawUrl !== 'null') {
+              // Get the audio URL from stored path - ensure full URL
+              const audioUrl = getFullAudioUrl(rawUrl)
+              if (audioUrl && audioUrl !== `${API_BASE_URL}/null`) {
+                newVoiceovers.set(slide.id, {
+                  audio_url: audioUrl,
+                  duration_ms: activeAudio.duration_ms || slide.duration_ms || 5000,
+                })
+              }
             }
           }
         }
@@ -569,7 +582,7 @@ export function Editor() {
         // Voiceover not found for this slide, skip
       }
     }
-    
+
     if (newVoiceovers.size > 0) {
       setVoiceovers(newVoiceovers)
     }
@@ -886,6 +899,11 @@ export function Editor() {
     if (slide) {
       setSelectedSlide(slide)
     }
+  }, [slides])
+
+  const handleVoiceoversUpdated = useCallback(() => {
+    // Refetch voiceovers when recordings are uploaded or versions are changed
+    fetchVoiceovers(slides)
   }, [slides])
 
   // Generate audio for a slide
@@ -2176,8 +2194,30 @@ Use the ✨ Generate Script button for AI-generated conversational transcript:
                     </div>
                   </div>
                   <div className="border rounded-lg p-4 space-y-4">
+                    {/* Recording Section */}
                     <div className="space-y-2">
-                      <Label>Voice</Label>
+                      <div className="flex items-center justify-between">
+                        <Label>Record Voiceover</Label>
+                        {voiceovers.get(selectedSlide.id) && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowVersionHistory(true)}
+                          >
+                            Manage Versions
+                          </Button>
+                        )}
+                      </div>
+                      <RecordingControls
+                        slideId={selectedSlide.id}
+                        onUploadComplete={handleVoiceoversUpdated}
+                      />
+                    </div>
+
+                    <Separator />
+
+                    <div className="space-y-2">
+                      <Label>Or Generate with AI</Label>
                       <Select value={selectedVoice} onValueChange={setSelectedVoice}>
                         <SelectTrigger>
                           <SelectValue placeholder="Select voice" />
@@ -2192,11 +2232,11 @@ Use the ✨ Generate Script button for AI-generated conversational transcript:
                         </SelectContent>
                       </Select>
                     </div>
-                    
+
                     {/* Audio Preview */}
                     {voiceovers.get(selectedSlide.id) ? (
                       <div className="space-y-2">
-                        <Label>Generated Audio</Label>
+                        <Label>Current Audio</Label>
                         <div className="h-20 bg-muted rounded-lg flex items-center justify-between px-4">
                           <div className="flex items-center gap-3">
                             <Button
@@ -2262,6 +2302,16 @@ Use the ✨ Generate Script button for AI-generated conversational transcript:
                 <div className="h-full flex items-center justify-center text-muted-foreground">
                   Select a slide to manage its audio
                 </div>
+              )}
+
+              {/* Version History Dialog */}
+              {selectedSlide && (
+                <RecordingVersionHistory
+                  slideId={selectedSlide.id}
+                  isOpen={showVersionHistory}
+                  onClose={() => setShowVersionHistory(false)}
+                  onVersionChanged={handleVoiceoversUpdated}
+                />
               )}
             </TabsContent>
 

@@ -170,6 +170,44 @@ export async function initDatabase() {
     )
   `);
 
+  // Migration: Add is_active column to voiceovers if it doesn't exist
+  try {
+    db.run(`ALTER TABLE voiceovers ADD COLUMN is_active INTEGER DEFAULT 1`);
+  } catch (e) {
+    // Column already exists
+  }
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS recorded_voiceovers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      slide_id INTEGER NOT NULL,
+      version_number INTEGER NOT NULL,
+      audio_asset_id TEXT NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      transcription TEXT,
+      transcription_status TEXT DEFAULT 'pending',
+      transcription_error TEXT,
+      is_active INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (slide_id) REFERENCES slides(id) ON DELETE CASCADE
+    )
+  `);
+
+  // Create indexes for recorded_voiceovers
+  try {
+    db.run(`CREATE INDEX IF NOT EXISTS idx_recorded_voiceovers_slide_id
+      ON recorded_voiceovers(slide_id)`);
+  } catch (e) {
+    // Index might already exist
+  }
+  try {
+    db.run(`CREATE INDEX IF NOT EXISTS idx_recorded_voiceovers_active
+      ON recorded_voiceovers(slide_id, is_active)`);
+  } catch (e) {
+    // Index might already exist
+  }
+
   db.run(`
     CREATE TABLE IF NOT EXISTS renders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -210,6 +248,16 @@ export async function initDatabase() {
       expires_at TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       view_count INTEGER DEFAULT 0
+    )
+  `);
+
+  // User preferences table keyed by Clerk user ID
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      user_id TEXT PRIMARY KEY NOT NULL,
+      preferences TEXT DEFAULT '{}',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `);
 

@@ -175,7 +175,7 @@ export function AIGenerationWizard({
     }
   }
 
-  // Import from Notion directly (skip outline step)
+  // Import from Notion directly (skip outline step, AI infers optimal slide count)
   const handleImportFromNotion = async () => {
     if (!selectedNotionPage) {
       toast({
@@ -195,6 +195,7 @@ export function AIGenerationWizard({
       const token = await getToken()
       setProgress(30)
       
+      // Don't send target_slides - let AI determine optimal count based on content
       const response = await fetch(`${API_BASE_URL}/api/notion/import`, {
         method: 'POST',
         headers: {
@@ -204,7 +205,7 @@ export function AIGenerationWizard({
         body: JSON.stringify({
           page_id: selectedNotionPage.id,
           deck_id: deckId,
-          target_slides: parseInt(numSlides),
+          // target_slides omitted - AI will infer optimal count
         }),
       })
 
@@ -220,9 +221,14 @@ export function AIGenerationWizard({
       setProgress(100)
       setStep('complete')
       
+      // Show inference reasoning if available
+      const inferenceNote = data.inference?.reasoning 
+        ? ` (${data.inference.reasoning})`
+        : ''
+      
       toast({
         title: 'Slides Imported!',
-        description: `Successfully imported ${data.slides?.length || 0} slides from Notion.`,
+        description: `Successfully created ${data.slides?.length || 0} slides from Notion${inferenceNote}`,
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to import from Notion'
@@ -238,12 +244,81 @@ export function AIGenerationWizard({
     }
   }
 
-  const handleGenerateOutline = async () => {
-    const content = inputMode === 'prompt' ? topic : notes
-    if (!content.trim()) {
+  // Import notes directly with AI-inferred slide count
+  const handleImportFromNotes = async () => {
+    if (!notes.trim()) {
       toast({
         title: 'Input Required',
-        description: 'Please enter a topic or paste your notes.',
+        description: 'Please paste your notes.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setStep('generating')
+    setProgress(10)
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const token = await getToken()
+      setProgress(30)
+      
+      // Use the new import-notes endpoint - AI infers optimal slide count
+      const response = await fetch(`${API_BASE_URL}/api/ai/slides/import-notes`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          deck_id: deckId,
+          notes: notes,
+          // target_slides omitted - AI will infer optimal count
+        }),
+      })
+
+      setProgress(70)
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || 'Failed to import notes')
+      }
+
+      const data = await response.json()
+      setGeneratedCount(data.count || data.slides?.length || 0)
+      setProgress(100)
+      setStep('complete')
+      
+      // Show inference reasoning if available
+      const inferenceNote = data.inference?.reasoning 
+        ? ` (${data.inference.reasoning})`
+        : ''
+      
+      toast({
+        title: 'Slides Created!',
+        description: `Successfully created ${data.count} slides from your notes${inferenceNote}`,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to import notes'
+      setError(message)
+      setStep('input')
+      toast({
+        title: 'Import Failed',
+        description: message,
+        variant: 'destructive',
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Generate outline for topic mode (uses fixed slide count)
+  const handleGenerateOutline = async () => {
+    if (!topic.trim()) {
+      toast({
+        title: 'Input Required',
+        description: 'Please enter a topic.',
         variant: 'destructive',
       })
       return
@@ -261,7 +336,7 @@ export function AIGenerationWizard({
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          topic: content,
+          topic: topic,
           num_slides: parseInt(numSlides),
         }),
       })
@@ -556,7 +631,8 @@ export function AIGenerationWizard({
                 </TabsContent>
               </Tabs>
 
-              {inputMode !== 'notion' && (
+              {/* Only show slide count selector for Topic mode - Notes and Notion use AI inference */}
+              {inputMode === 'prompt' && (
                 <div className="flex items-center gap-4">
                   <div className="space-y-2 flex-1">
                     <Label htmlFor="numSlides">Number of slides</Label>
@@ -576,23 +652,11 @@ export function AIGenerationWizard({
                 </div>
               )}
 
-              {inputMode === 'notion' && notionConnected && (
-                <div className="flex items-center gap-4">
-                  <div className="space-y-2 flex-1">
-                    <Label htmlFor="numSlidesNotion">Target number of slides</Label>
-                    <Select value={numSlides} onValueChange={setNumSlides}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="5">5 slides</SelectItem>
-                        <SelectItem value="8">8 slides</SelectItem>
-                        <SelectItem value="10">10 slides</SelectItem>
-                        <SelectItem value="12">12 slides</SelectItem>
-                        <SelectItem value="15">15 slides</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+              {/* Notes and Notion modes use AI to automatically determine optimal slide count */}
+              {(inputMode === 'notes' || (inputMode === 'notion' && notionConnected)) && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 text-sm text-muted-foreground">
+                  <Sparkles className="h-4 w-4 text-primary shrink-0" />
+                  <span>AI will automatically determine the optimal number of slides based on your content</span>
                 </div>
               )}
 
@@ -619,13 +683,27 @@ export function AIGenerationWizard({
                       </>
                     ) : (
                       <>
+                        <Sparkles className="mr-2 h-4 w-4" />
                         Import from Notion
-                        <ChevronRight className="ml-2 h-4 w-4" />
+                      </>
+                    )}
+                  </Button>
+                ) : inputMode === 'notes' ? (
+                  <Button onClick={handleImportFromNotes} disabled={isLoading || !notes.trim()}>
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Creating Slides...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="mr-2 h-4 w-4" />
+                        Create Slides from Notes
                       </>
                     )}
                   </Button>
                 ) : (
-                  <Button onClick={handleGenerateOutline} disabled={isLoading}>
+                  <Button onClick={handleGenerateOutline} disabled={isLoading || !topic.trim()}>
                     {isLoading ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
