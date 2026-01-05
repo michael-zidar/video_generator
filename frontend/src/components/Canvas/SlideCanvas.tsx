@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useMemo } from 'react'
+import { useAuth } from '@clerk/clerk-react'
 import type { SlideElement, TextElement as TextElementType, ImageElement as ImageElementType } from '@/types/slide'
 import { createTextElement, createImageElement, generateElementId } from '@/types/slide'
 import { CanvasElement } from './CanvasElement'
@@ -7,7 +8,12 @@ import { ImageElement } from './ImageElement'
 import { ElementToolbar } from './ElementToolbar'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { useToast } from '@/hooks/use-toast'
 import { Plus, Type, Image, Square } from 'lucide-react'
+import { OverlayPreview } from '@/components/OverlayPreview'
+import type { DeckOverlays } from '@/components/OverlaySettings'
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 interface SlideCanvasProps {
   elements: SlideElement[]
@@ -18,6 +24,9 @@ interface SlideCanvasProps {
   zoom: number
   onElementsChange: (elements: SlideElement[]) => void
   showGrid?: boolean
+  overlays?: DeckOverlays
+  slideIndex?: number
+  totalSlides?: number
 }
 
 export function SlideCanvas({
@@ -29,10 +38,17 @@ export function SlideCanvas({
   zoom,
   onElementsChange,
   showGrid = false,
+  overlays,
+  slideIndex = 0,
+  totalSlides = 1,
 }: SlideCanvasProps) {
+  const { getToken } = useAuth()
+  const { toast } = useToast()
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null)
   const [editingElementId, setEditingElementId] = useState<string | null>(null)
+  const [replacingImageId, setReplacingImageId] = useState<string | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Calculate scale for text rendering
   const baseWidth = 1920 // Design width
@@ -181,6 +197,76 @@ export function SlideCanvas({
     setSelectedElementId(newElement.id)
   }, [elements, onElementsChange])
 
+  // Handle image replacement (triggered by double-click on image placeholder)
+  const handleReplaceImage = useCallback((elementId: string) => {
+    setReplacingImageId(elementId)
+    fileInputRef.current?.click()
+  }, [])
+
+  // Handle file selection for image upload
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !replacingImageId) {
+      setReplacingImageId(null)
+      return
+    }
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: 'Invalid file type',
+        description: 'Please select an image file (PNG, JPG, GIF, etc.)',
+        variant: 'destructive'
+      })
+      setReplacingImageId(null)
+      e.target.value = ''
+      return
+    }
+
+    try {
+      toast({ title: 'Uploading image...', description: 'Please wait' })
+      
+      const token = await getToken()
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const response = await fetch(`${API_BASE_URL}/api/assets/upload`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        body: formData
+      })
+
+      if (!response.ok) {
+        throw new Error('Upload failed')
+      }
+
+      const asset = await response.json()
+      const imageUrl = `${API_BASE_URL}/data/assets/${asset.storage_path}`
+
+      // Update the image element with the new source
+      const newElements = elements.map(el => 
+        el.id === replacingImageId && el.type === 'image'
+          ? { ...el, src: imageUrl } as ImageElementType
+          : el
+      )
+      onElementsChange(newElements)
+      
+      toast({ title: 'Image uploaded!', description: 'Your image has been added to the slide' })
+    } catch (error) {
+      console.error('Error uploading image:', error)
+      toast({
+        title: 'Upload failed',
+        description: 'Could not upload the image. Please try again.',
+        variant: 'destructive'
+      })
+    } finally {
+      setReplacingImageId(null)
+      e.target.value = ''
+    }
+  }, [replacingImageId, elements, onElementsChange, getToken, toast])
+
   // Render element content based on type
   const renderElementContent = (element: SlideElement) => {
     switch (element.type) {
@@ -196,7 +282,12 @@ export function SlideCanvas({
           />
         )
       case 'image':
-        return <ImageElement element={element} />
+        return (
+          <ImageElement 
+            element={element} 
+            onReplace={() => handleReplaceImage(element.id)}
+          />
+        )
       case 'shape':
         // Basic shape rendering
         return (
@@ -306,12 +397,32 @@ export function SlideCanvas({
             />
           </div>
         )}
+
+        {/* Overlay Preview (logo, page numbers, watermark) */}
+        {overlays && (
+          <OverlayPreview
+            overlays={overlays}
+            slideIndex={slideIndex}
+            totalSlides={totalSlides}
+            containerWidth={canvasWidth}
+            containerHeight={canvasHeight}
+          />
+        )}
       </div>
 
       {/* Instructions */}
       <div className="text-xs text-muted-foreground mt-2 text-center">
         Click to select • Double-click text to edit • Drag to move • Use corners to resize
       </div>
+
+      {/* Hidden file input for image uploads */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileSelect}
+      />
     </div>
   )
 }

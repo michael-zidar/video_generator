@@ -70,7 +70,11 @@ import { SlideThumbnail } from '@/components/Timeline/SlideThumbnail'
 import { RecordingControls } from '@/components/Timeline/RecordingControls'
 import { RecordingVersionHistory } from '@/components/Timeline/RecordingVersionHistory'
 import { migrateSlideToElements, isElementBasedFormat } from '@/utils/slideMigration'
-import { Presentation, FileDown, Loader2, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, PenTool, Eye, Edit3, Sparkles } from 'lucide-react'
+import { Presentation, FileDown, Loader2, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, PenTool, Eye, Edit3, Sparkles, Image, Layout, Save } from 'lucide-react'
+import { BrandAssetsManager } from '@/components/BrandAssetsManager'
+import { OverlaySettings } from '@/components/OverlaySettings'
+import { OverlayPreview } from '@/components/OverlayPreview'
+import { TemplateManager } from '@/components/TemplateManager'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -87,6 +91,28 @@ interface Lesson {
   course_id: number
 }
 
+interface DeckOverlays {
+  logo?: {
+    brandAssetId: number | null
+    position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+    size: number
+    opacity: number
+    margin: number
+  }
+  pageNumber?: {
+    enabled: boolean
+    position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+    format: 'number' | 'number-of-total'
+    fontSize: number
+    color: string
+  }
+  watermark?: {
+    brandAssetId: number | null
+    opacity: number
+    size: number
+  }
+}
+
 interface Deck {
   id: number
   lesson_id: number
@@ -94,6 +120,7 @@ interface Deck {
   aspect_ratio: string
   resolution: string
   theme: object
+  overlays: DeckOverlays
   intro_scene_enabled: boolean
   outro_scene_enabled: boolean
 }
@@ -241,6 +268,7 @@ export function Editor() {
   const [canvasEditMode, setCanvasEditMode] = useState(false)
   const [showAIWizard, setShowAIWizard] = useState(false)
   const [isGeneratingScript, setIsGeneratingScript] = useState(false)
+  const [scriptGenerationProgress, setScriptGenerationProgress] = useState<{ current: number; total: number } | null>(null)
   const [scriptDuration, setScriptDuration] = useState('30')
   const [scriptPreviewMode, setScriptPreviewMode] = useState(false)
   const [voices, setVoices] = useState<Array<{ voice_id: string; name: string; category: string; labels?: { accent?: string; gender?: string } }>>([])
@@ -269,6 +297,9 @@ export function Editor() {
   }>>([])
   const [showTrimDialog, setShowTrimDialog] = useState(false)
   const [trimItem, setTrimItem] = useState<typeof timelineItems[0] | null>(null)
+  const [showBrandAssets, setShowBrandAssets] = useState(false)
+  const [showTemplates, setShowTemplates] = useState(false)
+  const [templateMode, setTemplateMode] = useState<'browse' | 'save'>('browse')
 
   // DnD sensors for drag and drop
   const sensors = useSensors(
@@ -1141,6 +1172,7 @@ export function Editor() {
     if (slides.length === 0) return
 
     setIsGeneratingScript(true)
+    setScriptGenerationProgress({ current: 0, total: slides.length })
     let successCount = 0
     let failCount = 0
 
@@ -1150,6 +1182,10 @@ export function Editor() {
       // Generate scripts for each slide sequentially with enhanced AI
       for (let i = 0; i < slides.length; i++) {
         const slide = slides[i]
+
+        // Update progress
+        setScriptGenerationProgress({ current: i + 1, total: slides.length })
+
         try {
           const response = await fetch(`${API_BASE_URL}/api/ai/scripts/generate-enhanced`, {
             method: 'POST',
@@ -1181,9 +1217,12 @@ export function Editor() {
 
             successCount++
           } else {
+            const errorData = await response.json().catch(() => ({}))
+            console.error(`Failed to generate script for slide ${i + 1}:`, errorData)
             failCount++
           }
-        } catch {
+        } catch (err) {
+          console.error(`Error generating script for slide ${i + 1}:`, err)
           failCount++
         }
       }
@@ -1209,6 +1248,7 @@ export function Editor() {
       })
     } finally {
       setIsGeneratingScript(false)
+      setScriptGenerationProgress(null)
     }
   }
 
@@ -1670,68 +1710,98 @@ export function Editor() {
                 <Settings className="h-4 w-4" />
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
+            <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
               <DialogHeader>
                 <DialogTitle>Deck Settings</DialogTitle>
                 <DialogDescription>
-                  Configure resolution, aspect ratio, and other deck settings.
+                  Configure resolution, aspect ratio, overlays, and more.
                 </DialogDescription>
               </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="space-y-2">
-                  <Label>Resolution</Label>
-                  <Select
-                    value={deck?.resolution || '1080p'}
-                    onValueChange={(value) => handleUpdateDeckSettings({ resolution: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="720p">720p (HD)</SelectItem>
-                      <SelectItem value="1080p">1080p (Full HD)</SelectItem>
-                      <SelectItem value="4K">4K (Ultra HD)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Aspect Ratio</Label>
-                  <Select
-                    value={deck?.aspect_ratio || '16:9'}
-                    onValueChange={(value) => handleUpdateDeckSettings({ aspect_ratio: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="16:9">16:9 (Widescreen)</SelectItem>
-                      <SelectItem value="9:16">9:16 (Vertical)</SelectItem>
-                      <SelectItem value="1:1">1:1 (Square)</SelectItem>
-                      <SelectItem value="4:3">4:3 (Standard)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label>Enable Intro Scene</Label>
-                  <Button
-                    variant={deck?.intro_scene_enabled ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => handleUpdateDeckSettings({ intro_scene_enabled: !deck?.intro_scene_enabled })}
-                  >
-                    {deck?.intro_scene_enabled ? 'Enabled' : 'Disabled'}
-                  </Button>
-                </div>
-                <div className="flex items-center justify-between">
-                  <Label>Enable Outro Scene</Label>
-                  <Button
-                    variant={deck?.outro_scene_enabled ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => handleUpdateDeckSettings({ outro_scene_enabled: !deck?.outro_scene_enabled })}
-                  >
-                    {deck?.outro_scene_enabled ? 'Enabled' : 'Disabled'}
-                  </Button>
-                </div>
-              </div>
+              <Tabs defaultValue="general" className="flex-1 overflow-hidden flex flex-col">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="general">General</TabsTrigger>
+                  <TabsTrigger value="overlays">Overlays</TabsTrigger>
+                </TabsList>
+                <TabsContent value="general" className="flex-1 overflow-auto mt-4">
+                  <div className="grid gap-4">
+                    <div className="space-y-2">
+                      <Label>Resolution</Label>
+                      <Select
+                        value={deck?.resolution || '1080p'}
+                        onValueChange={(value) => handleUpdateDeckSettings({ resolution: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="720p">720p (HD)</SelectItem>
+                          <SelectItem value="1080p">1080p (Full HD)</SelectItem>
+                          <SelectItem value="4K">4K (Ultra HD)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Aspect Ratio</Label>
+                      <Select
+                        value={deck?.aspect_ratio || '16:9'}
+                        onValueChange={(value) => handleUpdateDeckSettings({ aspect_ratio: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="16:9">16:9 (Widescreen)</SelectItem>
+                          <SelectItem value="9:16">9:16 (Vertical)</SelectItem>
+                          <SelectItem value="1:1">1:1 (Square)</SelectItem>
+                          <SelectItem value="4:3">4:3 (Standard)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Label>Enable Intro Scene</Label>
+                      <Button
+                        variant={deck?.intro_scene_enabled ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => handleUpdateDeckSettings({ intro_scene_enabled: !deck?.intro_scene_enabled })}
+                      >
+                        {deck?.intro_scene_enabled ? 'Enabled' : 'Disabled'}
+                      </Button>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Label>Enable Outro Scene</Label>
+                      <Button
+                        variant={deck?.outro_scene_enabled ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => handleUpdateDeckSettings({ outro_scene_enabled: !deck?.outro_scene_enabled })}
+                      >
+                        {deck?.outro_scene_enabled ? 'Enabled' : 'Disabled'}
+                      </Button>
+                    </div>
+                    <Separator className="my-2" />
+                    <div className="space-y-2">
+                      <Label>Brand Assets</Label>
+                      <Button
+                        variant="outline"
+                        className="w-full justify-start"
+                        onClick={() => {
+                          setIsSettingsOpen(false)
+                          setShowBrandAssets(true)
+                        }}
+                      >
+                        <Image className="h-4 w-4 mr-2" />
+                        Manage Brand Assets
+                      </Button>
+                    </div>
+                  </div>
+                </TabsContent>
+                <TabsContent value="overlays" className="flex-1 overflow-auto mt-4">
+                  <OverlaySettings
+                    overlays={deck?.overlays || {}}
+                    onOverlaysChange={(overlays) => handleUpdateDeckSettings({ overlays })}
+                    courseId={course?.id}
+                  />
+                </TabsContent>
+              </Tabs>
             </DialogContent>
           </Dialog>
         </div>
@@ -1838,6 +1908,31 @@ export function Editor() {
                 <Button variant="ghost" size="icon" onClick={handleAddSlide} title="Add slide">
                   <Plus className="h-4 w-4" />
                 </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" title="Templates">
+                      <Layout className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => {
+                      setTemplateMode('browse')
+                      setShowTemplates(true)
+                    }}>
+                      <Layout className="mr-2 h-4 w-4" />
+                      Apply Template
+                    </DropdownMenuItem>
+                    {selectedSlide && (
+                      <DropdownMenuItem onClick={() => {
+                        setTemplateMode('save')
+                        setShowTemplates(true)
+                      }}>
+                        <Save className="mr-2 h-4 w-4" />
+                        Save as Template
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
             <ScrollArea className="flex-1">
@@ -1891,11 +1986,8 @@ export function Editor() {
                 </TabsTrigger>
                 <TabsTrigger value="script" className="gap-2">
                   <Wand2 className="h-4 w-4" />
-                  Script
-                </TabsTrigger>
-                <TabsTrigger value="audio" className="gap-2">
                   <Mic className="h-4 w-4" />
-                  Audio
+                  Script & Audio
                 </TabsTrigger>
                 <TabsTrigger value="captions" className="gap-2">
                   <Subtitles className="h-4 w-4" />
@@ -1912,6 +2004,9 @@ export function Editor() {
                     canvasEditMode ? (
                       /* Canvas Edit Mode - Drag & Drop Editor */
                       <SlideCanvas
+                        overlays={deck?.overlays}
+                        slideIndex={slides.findIndex(s => s.id === selectedSlide.id)}
+                        totalSlides={slides.length}
                         elements={(() => {
                           // Get or migrate elements from slide body
                           const body = selectedSlide.body as unknown
@@ -2011,6 +2106,17 @@ export function Editor() {
                             {renderSlideContent(selectedSlide)}
                           </div>
                         )}
+
+                        {/* Overlay Preview (logo, page numbers, watermark) */}
+                        {deck?.overlays && (
+                          <OverlayPreview
+                            overlays={deck.overlays}
+                            slideIndex={slides.findIndex(s => s.id === selectedSlide.id)}
+                            totalSlides={slides.length}
+                            containerWidth={(zoom / 100) * 640}
+                            containerHeight={(zoom / 100) * 640 * (deck?.aspect_ratio === '16:9' ? 9/16 : deck?.aspect_ratio === '9:16' ? 16/9 : 1)}
+                          />
+                        )}
                       </div>
                     )
                   ) : (
@@ -2063,9 +2169,10 @@ export function Editor() {
 
             <TabsContent value="script" className="flex-1 m-0 p-4 overflow-auto">
               {selectedSlide ? (
-                <div className="max-w-2xl mx-auto space-y-4">
+                <div className="max-w-3xl mx-auto space-y-6">
+                  {/* Header with controls */}
                   <div className="flex items-center justify-between flex-wrap gap-2">
-                    <h3 className="font-semibold">Speaker Notes - Slide {slides.findIndex(s => s.id === selectedSlide.id) + 1}</h3>
+                    <h3 className="font-semibold">Script & Audio - Slide {slides.findIndex(s => s.id === selectedSlide.id) + 1}</h3>
                     <div className="flex items-center gap-2">
                       {selectedSlide.speaker_notes && (
                         <Button
@@ -2086,221 +2193,226 @@ export function Editor() {
                           )}
                         </Button>
                       )}
-                      <Select value={scriptDuration} onValueChange={setScriptDuration}>
-                        <SelectTrigger className="w-24 h-8">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="15">15 sec</SelectItem>
-                          <SelectItem value="30">30 sec</SelectItem>
-                          <SelectItem value="60">60 sec</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        variant="default"
-                        size="sm"
-                        onClick={() => handleGenerateScript(selectedSlide.id)}
-                        disabled={isGeneratingScript}
-                      >
-                        {isGeneratingScript ? (
-                          <>
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            Generating...
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles className="h-4 w-4 mr-2" />
-                            Generate Script
-                          </>
-                        )}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleGenerateAllScripts}
-                        disabled={isGeneratingScript || slides.length === 0}
-                      >
-                        Generate All
-                      </Button>
+                      {voiceovers.get(selectedSlide.id) && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowVersionHistory(true)}
+                        >
+                          Version History
+                        </Button>
+                      )}
                     </div>
                   </div>
 
-                  {scriptPreviewMode && selectedSlide.speaker_notes ? (
-                    <div className="min-h-[300px] p-4 border rounded-lg bg-muted/30">
-                      <div className="prose prose-sm dark:prose-invert max-w-none">
-                        <Markdown remarkPlugins={[remarkGfm]}>
-                          {selectedSlide.speaker_notes}
-                        </Markdown>
+                  {/* Script Section */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-base font-semibold">Speaker Notes</Label>
+                      <div className="flex items-center gap-2">
+                        <Select value={scriptDuration} onValueChange={setScriptDuration}>
+                          <SelectTrigger className="w-24 h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="15">15 sec</SelectItem>
+                            <SelectItem value="30">30 sec</SelectItem>
+                            <SelectItem value="60">60 sec</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => handleGenerateScript(selectedSlide.id)}
+                          disabled={isGeneratingScript}
+                        >
+                          {isGeneratingScript && !scriptGenerationProgress ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Generating...
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="h-4 w-4 mr-2" />
+                              Generate Script
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleGenerateAllScripts}
+                          disabled={isGeneratingScript || slides.length === 0}
+                        >
+                          {scriptGenerationProgress ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              {scriptGenerationProgress.current}/{scriptGenerationProgress.total}
+                            </>
+                          ) : (
+                            'Generate All'
+                          )}
+                        </Button>
                       </div>
                     </div>
-                  ) : (
-                    <Textarea
-                      className="min-h-[300px] resize-none font-mono text-sm"
-                      placeholder="Enter your speaker notes or narration here...
+
+                    {scriptPreviewMode && selectedSlide.speaker_notes ? (
+                      <div className="min-h-[300px] p-4 border rounded-lg bg-muted/30">
+                        <div className="prose prose-sm dark:prose-invert max-w-none">
+                          <Markdown remarkPlugins={[remarkGfm]}>
+                            {selectedSlide.speaker_notes}
+                          </Markdown>
+                        </div>
+                      </div>
+                    ) : (
+                      <Textarea
+                        className="min-h-[300px] resize-none font-mono text-sm"
+                        placeholder="Enter your speaker notes or narration here...
 
 Use the ✨ Generate Script button for AI-generated conversational transcript:
 • Natural speech patterns with ums, uhs, and casual language
 • Contractions and real-world speaking style
 • Context-aware transitions between slides
 • 3-step AI refinement for authentic human delivery"
-                      value={selectedSlide.speaker_notes || ''}
-                      onChange={(e) => handleUpdateSlide(selectedSlide.id, { speaker_notes: e.target.value })}
-                    />
-                  )}
+                        value={selectedSlide.speaker_notes || ''}
+                        onChange={(e) => handleUpdateSlide(selectedSlide.id, { speaker_notes: e.target.value })}
+                      />
+                    )}
 
-                  <p className="text-sm text-muted-foreground">
-                    Tip: Generated scripts sound like natural conversation, not formal writing. Includes filler words, contractions, and casual phrasing for authentic human delivery.
-                  </p>
-                </div>
-              ) : (
-                <div className="h-full flex items-center justify-center text-muted-foreground">
-                  Select a slide to edit its script
-                </div>
-              )}
-            </TabsContent>
-
-            <TabsContent value="audio" className="flex-1 m-0 p-4 overflow-auto">
-              {selectedSlide ? (
-                <div className="max-w-2xl mx-auto space-y-4">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <h3 className="font-semibold">Voiceover - Slide {slides.findIndex(s => s.id === selectedSlide.id) + 1}</h3>
-                    <div className="flex items-center gap-2">
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => handleGenerateAudio(selectedSlide.id)}
-                        disabled={isGeneratingAudio || !selectedSlide.speaker_notes}
-                      >
-                        {isGeneratingAudio ? (
-                          <>
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            Generating...
-                          </>
-                        ) : (
-                          <>
-                            <Mic className="h-4 w-4 mr-2" />
-                            Generate Audio
-                          </>
-                        )}
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={handleGenerateAllAudio}
-                        disabled={isGeneratingAudio}
-                      >
-                        Generate All
-                      </Button>
-                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Tip: Generated scripts sound like natural conversation, not formal writing. Includes filler words, contractions, and casual phrasing for authentic human delivery.
+                    </p>
                   </div>
-                  <div className="border rounded-lg p-4 space-y-4">
-                    {/* Recording Section */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
+
+                  <Separator />
+
+                  {/* Audio Section */}
+                  <div className="space-y-4">
+                    <Label className="text-base font-semibold">Voiceover</Label>
+
+                    <div className="border rounded-lg p-4 space-y-4">
+                      {/* Recording Section */}
+                      <div className="space-y-2">
                         <Label>Record Voiceover</Label>
-                        {voiceovers.get(selectedSlide.id) && (
+                        <RecordingControls
+                          slideId={selectedSlide.id}
+                          onUploadComplete={handleVoiceoversUpdated}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Recording will be automatically transcribed. You can save transcripts to speaker notes from the Version History.
+                        </p>
+                      </div>
+
+                      <Separator />
+
+                      <div className="space-y-2">
+                        <Label>Or Generate with AI</Label>
+                        <div className="flex gap-2">
+                          <Select value={selectedVoice} onValueChange={setSelectedVoice}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select voice" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {voices.map((voice) => (
+                                <SelectItem key={voice.voice_id} value={voice.voice_id}>
+                                  {voice.name}
+                                  {voice.labels?.gender && ` (${voice.labels.gender})`}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => setShowVersionHistory(true)}
+                            onClick={() => handleGenerateAudio(selectedSlide.id)}
+                            disabled={isGeneratingAudio || !selectedSlide.speaker_notes}
                           >
-                            Manage Versions
+                            {isGeneratingAudio ? (
+                              <>
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                Generating...
+                              </>
+                            ) : (
+                              <>
+                                <Mic className="h-4 w-4 mr-2" />
+                                Generate
+                              </>
+                            )}
                           </Button>
-                        )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleGenerateAllAudio}
+                            disabled={isGeneratingAudio}
+                          >
+                            Generate All
+                          </Button>
+                        </div>
                       </div>
-                      <RecordingControls
-                        slideId={selectedSlide.id}
-                        onUploadComplete={handleVoiceoversUpdated}
-                      />
-                    </div>
 
-                    <Separator />
-
-                    <div className="space-y-2">
-                      <Label>Or Generate with AI</Label>
-                      <Select value={selectedVoice} onValueChange={setSelectedVoice}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select voice" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {voices.map((voice) => (
-                            <SelectItem key={voice.voice_id} value={voice.voice_id}>
-                              {voice.name}
-                              {voice.labels?.gender && ` (${voice.labels.gender})`}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* Audio Preview */}
-                    {voiceovers.get(selectedSlide.id) ? (
-                      <div className="space-y-2">
-                        <Label>Current Audio</Label>
-                        <div className="h-20 bg-muted rounded-lg flex items-center justify-between px-4">
-                          <div className="flex items-center gap-3">
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="h-10 w-10"
-                              onClick={() => {
-                                const voiceover = voiceovers.get(selectedSlide.id)
-                                if (voiceover) {
-                                  if (playingAudio) {
-                                    handleStopAudio()
-                                  } else {
-                                    handlePlayAudio(voiceover.audio_url)
+                      {/* Audio Preview */}
+                      {voiceovers.get(selectedSlide.id) ? (
+                        <div className="space-y-2">
+                          <Label>Current Audio</Label>
+                          <div className="h-20 bg-muted rounded-lg flex items-center justify-between px-4">
+                            <div className="flex items-center gap-3">
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                className="h-10 w-10"
+                                onClick={() => {
+                                  const voiceover = voiceovers.get(selectedSlide.id)
+                                  if (voiceover) {
+                                    if (playingAudio) {
+                                      handleStopAudio()
+                                    } else {
+                                      handlePlayAudio(voiceover.audio_url)
+                                    }
                                   }
-                                }
-                              }}
-                            >
-                              {playingAudio ? (
-                                <Pause className="h-4 w-4" />
-                              ) : (
-                                <Play className="h-4 w-4" />
-                              )}
-                            </Button>
-                            <div>
-                              <p className="text-sm font-medium">Voiceover Ready</p>
-                              <p className="text-xs text-muted-foreground">
-                                Duration: {Math.round((voiceovers.get(selectedSlide.id)?.duration_ms || 0) / 1000)}s
-                              </p>
+                                }}
+                              >
+                                {playingAudio ? (
+                                  <Pause className="h-4 w-4" />
+                                ) : (
+                                  <Play className="h-4 w-4" />
+                                )}
+                              </Button>
+                              <div>
+                                <p className="text-sm font-medium">Voiceover Ready</p>
+                                <p className="text-xs text-muted-foreground">
+                                  Duration: {Math.round((voiceovers.get(selectedSlide.id)?.duration_ms || 0) / 1000)}s
+                                </p>
+                              </div>
                             </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {/* Simple audio visualization bars */}
-                            <div className="flex items-end gap-0.5 h-8">
-                              {[0.4, 0.7, 0.5, 0.9, 0.6, 0.8, 0.4, 0.7, 0.5].map((h, i) => (
-                                <div
-                                  key={i}
-                                  className={`w-1 bg-primary/60 rounded-full transition-all ${playingAudio ? 'animate-pulse' : ''}`}
-                                  style={{ height: `${h * 100}%` }}
-                                />
-                              ))}
+                            <div className="flex items-center gap-2">
+                              {/* Simple audio visualization bars */}
+                              <div className="flex items-end gap-0.5 h-8">
+                                {[0.4, 0.7, 0.5, 0.9, 0.6, 0.8, 0.4, 0.7, 0.5].map((h, i) => (
+                                  <div
+                                    key={i}
+                                    className={`w-1 bg-primary/60 rounded-full transition-all ${playingAudio ? 'animate-pulse' : ''}`}
+                                    style={{ height: `${h * 100}%` }}
+                                  />
+                                ))}
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    ) : (
-                      <div className="h-20 bg-muted rounded-lg flex items-center justify-center text-sm text-muted-foreground">
-                        {!selectedSlide.speaker_notes ? (
-                          <span>Add speaker notes first to generate audio</span>
-                        ) : (
-                          <span>Click "Generate Audio" to create voiceover</span>
-                        )}
-                      </div>
-                    )}
-
-                    {!selectedSlide.speaker_notes && (
-                      <p className="text-sm text-muted-foreground">
-                        <span className="text-amber-500">⚠</span> Go to the Script tab to add speaker notes before generating audio.
-                      </p>
-                    )}
+                      ) : (
+                        <div className="h-20 bg-muted rounded-lg flex items-center justify-center text-sm text-muted-foreground">
+                          {!selectedSlide.speaker_notes ? (
+                            <span>Add speaker notes above to generate audio</span>
+                          ) : (
+                            <span>Click "Generate" to create AI voiceover, or record your own above</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ) : (
                 <div className="h-full flex items-center justify-center text-muted-foreground">
-                  Select a slide to manage its audio
+                  Select a slide to edit its script and audio
                 </div>
               )}
 
@@ -2311,6 +2423,9 @@ Use the ✨ Generate Script button for AI-generated conversational transcript:
                   isOpen={showVersionHistory}
                   onClose={() => setShowVersionHistory(false)}
                   onVersionChanged={handleVoiceoversUpdated}
+                  onTranscriptToNotes={(transcript) => {
+                    handleUpdateSlide(selectedSlide.id, { speaker_notes: transcript });
+                  }}
                 />
               )}
             </TabsContent>
@@ -2929,6 +3044,35 @@ Use the ✨ Generate Script button for AI-generated conversational transcript:
         onClose={() => setShowVideoUpload(false)}
         type={videoUploadType}
         onVideoUploaded={handleVideoUploaded}
+      />
+
+      {/* Brand Assets Manager */}
+      <BrandAssetsManager
+        courseId={course?.id}
+        isOpen={showBrandAssets}
+        onClose={() => setShowBrandAssets(false)}
+      />
+
+      {/* Template Manager */}
+      <TemplateManager
+        courseId={course?.id}
+        currentSlide={selectedSlide as { id: number; title?: string; body?: unknown; background_color?: string } | null}
+        isOpen={showTemplates}
+        onClose={() => setShowTemplates(false)}
+        mode={templateMode}
+        onApplyTemplate={(elements, backgroundColor) => {
+          if (selectedSlide) {
+            const currentBody = selectedSlide.body || {}
+            handleUpdateSlide(selectedSlide.id, {
+              body: {
+                ...currentBody,
+                elements,
+                version: ((currentBody as { version?: number }).version || 0) + 1
+              } as SlideBody,
+              background_color: backgroundColor
+            })
+          }
+        }}
       />
 
       {/* Bottom Timeline */}

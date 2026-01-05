@@ -3,10 +3,35 @@ import { get, all, run, insert } from '../db.js';
 
 const router = Router();
 
+// GET /api/decks/:id - Get a single deck
+router.get('/:id', (req, res) => {
+  const deckId = req.params.id;
+
+  // Check ownership
+  const deck = get(`
+    SELECT d.*
+    FROM decks d
+    JOIN lessons l ON d.lesson_id = l.id
+    JOIN courses c ON l.course_id = c.id
+    WHERE d.id = ? AND c.user_id = ?
+  `, [deckId, req.user.id]);
+
+  if (!deck) {
+    return res.status(404).json({ error: 'Deck not found' });
+  }
+
+  // Parse JSON fields
+  res.json({
+    ...deck,
+    theme: typeof deck.theme === 'string' ? JSON.parse(deck.theme) : deck.theme,
+    overlays: typeof deck.overlays === 'string' ? JSON.parse(deck.overlays) : (deck.overlays || {})
+  });
+});
+
 // PUT /api/decks/:id - Update a deck
 router.put('/:id', (req, res) => {
   const deckId = req.params.id;
-  const { title, aspect_ratio, resolution, theme, intro_scene_enabled, outro_scene_enabled } = req.body;
+  const { title, aspect_ratio, resolution, theme, intro_scene_enabled, outro_scene_enabled, overlays } = req.body;
 
   // Check ownership
   const existing = get(`
@@ -48,6 +73,10 @@ router.put('/:id', (req, res) => {
     updates.push('outro_scene_enabled = ?');
     params.push(outro_scene_enabled ? 1 : 0);
   }
+  if (overlays !== undefined) {
+    updates.push('overlays = ?');
+    params.push(JSON.stringify(overlays));
+  }
 
   if (updates.length > 0) {
     updates.push('updated_at = CURRENT_TIMESTAMP');
@@ -56,7 +85,11 @@ router.put('/:id', (req, res) => {
   }
 
   const deck = get('SELECT * FROM decks WHERE id = ?', [deckId]);
-  res.json(deck);
+  res.json({
+    ...deck,
+    theme: typeof deck.theme === 'string' ? JSON.parse(deck.theme) : deck.theme,
+    overlays: typeof deck.overlays === 'string' ? JSON.parse(deck.overlays) : (deck.overlays || {})
+  });
 });
 
 // GET /api/decks/:id/slides - Get slides for a deck

@@ -286,6 +286,50 @@ export async function initDatabase() {
     // Column already exists
   }
 
+  // Brand assets table for logos, watermarks, icons that can be reused across lessons
+  db.run(`
+    CREATE TABLE IF NOT EXISTS brand_assets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      course_id INTEGER,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      asset_id INTEGER NOT NULL,
+      default_position TEXT DEFAULT 'bottom-right',
+      default_size INTEGER DEFAULT 10,
+      default_opacity REAL DEFAULT 1.0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE SET NULL,
+      FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE
+    )
+  `);
+
+  // Slide templates table for reusable slide designs
+  db.run(`
+    CREATE TABLE IF NOT EXISTS slide_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      course_id INTEGER,
+      name TEXT NOT NULL,
+      description TEXT,
+      elements TEXT NOT NULL,
+      background_color TEXT DEFAULT '#ffffff',
+      thumbnail_asset_id INTEGER,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE SET NULL,
+      FOREIGN KEY (thumbnail_asset_id) REFERENCES assets(id) ON DELETE SET NULL
+    )
+  `);
+
+  // Migration: Add overlays column to decks for logo/page number settings
+  try {
+    db.run(`ALTER TABLE decks ADD COLUMN overlays TEXT DEFAULT '{}'`);
+  } catch (e) {
+    // Column already exists
+  }
+
   // Create demo user if not exists
   const demoUser = db.exec("SELECT id FROM users WHERE email = 'demo@example.com'");
   if (demoUser.length === 0 || demoUser[0].values.length === 0) {

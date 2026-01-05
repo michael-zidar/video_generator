@@ -159,9 +159,170 @@ function renderSlideContent(slide) {
 }
 
 /**
+ * Get brand asset info with file path
+ */
+function getBrandAssetInfo(brandAssetId) {
+  if (!brandAssetId) return null;
+  
+  const brandAsset = get(`
+    SELECT ba.*, a.storage_path, a.mime_type
+    FROM brand_assets ba
+    JOIN assets a ON ba.asset_id = a.id
+    WHERE ba.id = ?
+  `, [brandAssetId]);
+  
+  if (!brandAsset) return null;
+  
+  // Get absolute path for the brand asset
+  const assetPath = path.join(DATA_DIR, 'assets/brand', brandAsset.storage_path);
+  
+  return {
+    ...brandAsset,
+    absolutePath: assetPath,
+    exists: fs.existsSync(assetPath)
+  };
+}
+
+/**
+ * Generate overlay HTML (logo, page number, watermark)
+ */
+function generateOverlayHTML(overlays, slideIndex, totalSlides, width, height) {
+  if (!overlays || typeof overlays !== 'object') return '';
+  
+  let overlayHtml = '';
+  
+  // Logo overlay
+  if (overlays.logo && overlays.logo.brandAssetId) {
+    const brandAsset = getBrandAssetInfo(overlays.logo.brandAssetId);
+    if (brandAsset && brandAsset.exists) {
+      const position = overlays.logo.position || 'bottom-right';
+      const size = overlays.logo.size || 10; // percentage of width
+      const opacity = overlays.logo.opacity ?? 1;
+      const margin = overlays.logo.margin || 20;
+      
+      const logoWidth = Math.round(width * size / 100);
+      
+      // Position mapping
+      const positionStyles = {
+        'top-left': `top: ${margin}px; left: ${margin}px;`,
+        'top-right': `top: ${margin}px; right: ${margin}px;`,
+        'bottom-left': `bottom: ${margin}px; left: ${margin}px;`,
+        'bottom-right': `bottom: ${margin}px; right: ${margin}px;`,
+      };
+      
+      // Read image as base64 for embedding in HTML
+      const imageBuffer = fs.readFileSync(brandAsset.absolutePath);
+      const base64Image = imageBuffer.toString('base64');
+      const mimeType = brandAsset.mime_type || 'image/png';
+      
+      overlayHtml += `
+        <div class="overlay-logo" style="
+          position: absolute;
+          ${positionStyles[position] || positionStyles['bottom-right']}
+          z-index: 1000;
+          opacity: ${opacity};
+        ">
+          <img src="data:${mimeType};base64,${base64Image}" 
+               style="width: ${logoWidth}px; height: auto; object-fit: contain;" 
+               alt="Logo" />
+        </div>
+      `;
+    }
+  }
+  
+  // Page number overlay
+  if (overlays.pageNumber && overlays.pageNumber.enabled) {
+    const position = overlays.pageNumber.position || 'bottom-right';
+    const format = overlays.pageNumber.format || 'number';
+    const fontSize = overlays.pageNumber.fontSize || 24;
+    const color = overlays.pageNumber.color || '#666666';
+    const margin = 20;
+    
+    // Format the page number
+    const pageNumber = slideIndex + 1;
+    let pageText = `${pageNumber}`;
+    if (format === 'number-of-total') {
+      pageText = `${pageNumber} / ${totalSlides}`;
+    }
+    
+    // Avoid overlap with logo if on same position
+    const logoPosition = overlays.logo?.position || 'bottom-right';
+    let adjustedMargin = margin;
+    let extraOffset = '';
+    
+    if (position === logoPosition && overlays.logo?.brandAssetId) {
+      // Move page number to avoid logo
+      const logoSize = overlays.logo?.size || 10;
+      const logoWidth = Math.round(width * logoSize / 100);
+      if (position.includes('right')) {
+        extraOffset = `margin-right: ${logoWidth + 20}px;`;
+      } else if (position.includes('left')) {
+        extraOffset = `margin-left: ${logoWidth + 20}px;`;
+      }
+    }
+    
+    // Position mapping
+    const positionStyles = {
+      'top-left': `top: ${adjustedMargin}px; left: ${adjustedMargin}px;`,
+      'top-right': `top: ${adjustedMargin}px; right: ${adjustedMargin}px;`,
+      'bottom-left': `bottom: ${adjustedMargin}px; left: ${adjustedMargin}px;`,
+      'bottom-right': `bottom: ${adjustedMargin}px; right: ${adjustedMargin}px;`,
+    };
+    
+    overlayHtml += `
+      <div class="overlay-page-number" style="
+        position: absolute;
+        ${positionStyles[position] || positionStyles['bottom-right']}
+        z-index: 999;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: ${fontSize}px;
+        color: ${color};
+        font-weight: 500;
+        ${extraOffset}
+      ">
+        ${escapeHtml(pageText)}
+      </div>
+    `;
+  }
+  
+  // Watermark overlay (centered, semi-transparent)
+  if (overlays.watermark && overlays.watermark.brandAssetId) {
+    const brandAsset = getBrandAssetInfo(overlays.watermark.brandAssetId);
+    if (brandAsset && brandAsset.exists) {
+      const opacity = overlays.watermark.opacity ?? 0.1;
+      const size = overlays.watermark.size || 30; // percentage of width
+      const watermarkWidth = Math.round(width * size / 100);
+      
+      // Read image as base64
+      const imageBuffer = fs.readFileSync(brandAsset.absolutePath);
+      const base64Image = imageBuffer.toString('base64');
+      const mimeType = brandAsset.mime_type || 'image/png';
+      
+      overlayHtml += `
+        <div class="overlay-watermark" style="
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          z-index: 1;
+          opacity: ${opacity};
+          pointer-events: none;
+        ">
+          <img src="data:${mimeType};base64,${base64Image}" 
+               style="width: ${watermarkWidth}px; height: auto; object-fit: contain;" 
+               alt="Watermark" />
+        </div>
+      `;
+    }
+  }
+  
+  return overlayHtml;
+}
+
+/**
  * Generate HTML for a single slide
  */
-function generateSlideHTML(slide, width, height) {
+function generateSlideHTML(slide, width, height, overlays = {}, slideIndex = 0, totalSlides = 1) {
   const bgColor = slide.background_color || '#ffffff';
   const content = renderSlideContent(slide);
   
@@ -175,6 +336,9 @@ function generateSlideHTML(slide, width, height) {
       background-color: ${bgColor};
     `;
   }
+  
+  // Generate overlay HTML
+  const overlayHtml = generateOverlayHTML(overlays, slideIndex, totalSlides, width, height);
 
   return `<!DOCTYPE html>
 <html>
@@ -193,13 +357,26 @@ function generateSlideHTML(slide, width, height) {
       justify-content: center;
       padding: 60px;
       overflow: hidden;
+      position: relative;
     }
     h2 { text-align: center; }
     img { border-radius: 8px; }
+    .slide-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      z-index: 10;
+    }
   </style>
 </head>
 <body>
-  ${content}
+  <div class="slide-content">
+    ${content}
+  </div>
+  ${overlayHtml}
 </body>
 </html>`;
 }
@@ -207,13 +384,13 @@ function generateSlideHTML(slide, width, height) {
 /**
  * Render a single slide to an image using Puppeteer
  */
-async function renderSlideToImage(browser, slide, width, height, outputPath) {
+async function renderSlideToImage(browser, slide, width, height, outputPath, overlays = {}, slideIndex = 0, totalSlides = 1) {
   const page = await browser.newPage();
   
   try {
     await page.setViewport({ width, height });
     
-    const html = generateSlideHTML(slide, width, height);
+    const html = generateSlideHTML(slide, width, height, overlays, slideIndex, totalSlides);
     await page.setContent(html, { waitUntil: 'networkidle0' });
     
     // Small delay to ensure fonts are loaded
@@ -606,6 +783,10 @@ async function renderAsync(renderId, deck, slides, settings) {
   
   let browser = null;
   
+  // Parse deck overlays
+  const overlays = typeof deck.overlays === 'string' ? JSON.parse(deck.overlays || '{}') : (deck.overlays || {});
+  const totalSlides = slides.length;
+  
   try {
     // Update status to running
     run(
@@ -668,9 +849,9 @@ async function renderAsync(renderId, deck, slides, settings) {
           path: videoInfo.path,
         });
       } else {
-        // Regular slide - render to image
+        // Regular slide - render to image with overlays
         const imagePath = path.join(renderDir, `slide_${i}.png`);
-        await renderSlideToImage(browser, slide, width, height, imagePath);
+        await renderSlideToImage(browser, slide, width, height, imagePath, overlays, i, totalSlides);
         slideMedia.push({
           type: 'image',
           path: imagePath,

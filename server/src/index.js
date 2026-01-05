@@ -19,6 +19,8 @@ import aiRoutes from './routes/ai.js';
 import voiceProfileRoutes from './routes/voice-profiles.js';
 import notionRoutes from './routes/notion.js';
 import timelineItemsRoutes from './routes/timeline-items.js';
+import brandAssetsRoutes from './routes/brand-assets.js';
+import templatesRoutes from './routes/templates.js';
 import { authMiddleware } from './middleware/auth.js';
 import { renderEvents } from './services/render.js';
 
@@ -110,12 +112,13 @@ renderEvents.on('canceled', (data) => broadcastRenderEvent('canceled', data));
 
 // Middleware
 app.use(cors());
+
+// Static file serving for assets - placed before Clerk middleware to avoid auth issues
+app.use('/data', express.static(path.join(__dirname, '../../data')));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(ClerkExpressWithAuth());
-
-// Static file serving for assets
-app.use('/data', express.static(path.join(__dirname, '../../data')));
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -135,6 +138,8 @@ app.use('/api/ai', authMiddleware, aiRoutes);
 app.use('/api/voice-profiles', authMiddleware, voiceProfileRoutes);
 app.use('/api/notion', authMiddleware, notionRoutes);
 app.use('/api/timeline-items', authMiddleware, timelineItemsRoutes);
+app.use('/api/brand-assets', authMiddleware, brandAssetsRoutes);
+app.use('/api/templates', authMiddleware, templatesRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

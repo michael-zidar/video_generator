@@ -869,7 +869,7 @@ router.post('/image/generate', async (req, res) => {
     }
 
     if (!isImageGenerationConfigured()) {
-      return res.status(503).json({ error: 'Image generation not configured. Set GOOGLE_API_KEY in .env' });
+      return res.status(503).json({ error: 'Image generation not configured. Set GEMINI_API_KEY in .env' });
     }
 
     // Verify slide exists
@@ -909,7 +909,7 @@ router.post('/image/generate-from-content', async (req, res) => {
     }
 
     if (!isImageGenerationConfigured()) {
-      return res.status(503).json({ error: 'Image generation not configured. Set GOOGLE_API_KEY in .env' });
+      return res.status(503).json({ error: 'Image generation not configured. Set GEMINI_API_KEY in .env' });
     }
 
     // Get slide

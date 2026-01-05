@@ -16,10 +16,13 @@ let genAI = null;
 
 const getGoogleAIClient = () => {
   if (!genAI) {
-    const apiKey = process.env.GOOGLE_API_KEY;
+    // Check both GOOGLE_API_KEY and GEMINI_API_KEY for compatibility
+    const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
     if (!apiKey || apiKey.startsWith('your-')) {
-      throw new Error('Google API key not configured. Please set GOOGLE_API_KEY in server/.env');
+      throw new Error('Google API key not configured. Please set GOOGLE_API_KEY or GEMINI_API_KEY in server/.env');
     }
+    // Initialize with explicit apiKey parameter
+    // The SDK will use this for authentication
     genAI = new GoogleGenAI({ apiKey });
   }
   return genAI;
@@ -58,19 +61,30 @@ const generateFilename = () => {
 export async function generateSlideImage(prompt, aspectRatio = '16:9') {
   const client = getGoogleAIClient();
   const geminiAspectRatio = mapAspectRatio(aspectRatio);
-  
+
   console.log(`Generating image with prompt: "${prompt.substring(0, 100)}..." (aspect ratio: ${geminiAspectRatio})`);
-  
+
   try {
-    const response = await client.models.generateContent({
+    // Build the request config
+    const requestConfig = {
       model: 'gemini-2.5-flash-image',
       contents: prompt,
-      config: {
+    };
+
+    // Add aspect ratio configuration if specified
+    if (geminiAspectRatio) {
+      requestConfig.config = {
         imageConfig: {
           aspectRatio: geminiAspectRatio,
         },
-      },
-    });
+      };
+    }
+
+    console.log('Request config:', JSON.stringify(requestConfig, null, 2));
+
+    const response = await client.models.generateContent(requestConfig);
+
+    console.log('Response received:', JSON.stringify(response, null, 2));
 
     // Find the image part in the response
     const candidate = response.candidates?.[0];
@@ -97,16 +111,16 @@ export async function generateSlideImage(prompt, aspectRatio = '16:9') {
     const buffer = Buffer.from(imageData, 'base64');
     const filename = generateFilename();
     const filePath = path.join(ASSETS_DIR, filename);
-    
+
     fs.writeFileSync(filePath, buffer);
-    
+
     // Get image dimensions from aspect ratio
     const dimensions = getImageDimensions(geminiAspectRatio);
-    
+
     const relativePath = `/data/assets/images/${filename}`;
-    
+
     console.log(`Image generated and saved: ${relativePath}`);
-    
+
     return {
       url: relativePath,
       filename,
@@ -116,6 +130,13 @@ export async function generateSlideImage(prompt, aspectRatio = '16:9') {
     };
   } catch (error) {
     console.error('Gemini image generation error:', error);
+    // Log the full error object for debugging
+    if (error.response) {
+      console.error('Error response:', JSON.stringify(error.response, null, 2));
+    }
+    if (error.message) {
+      console.error('Error message:', error.message);
+    }
     throw new Error(`Image generation failed: ${error.message}`);
   }
 }
@@ -181,7 +202,7 @@ function getImageDimensions(aspectRatio) {
  * Check if image generation is configured
  */
 export function isImageGenerationConfigured() {
-  const apiKey = process.env.GOOGLE_API_KEY;
+  const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
   return apiKey && !apiKey.startsWith('your-');
 }
 

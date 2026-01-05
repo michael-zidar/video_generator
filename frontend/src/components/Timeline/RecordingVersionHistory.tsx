@@ -30,13 +30,15 @@ interface RecordingVersionHistoryProps {
   isOpen: boolean;
   onClose: () => void;
   onVersionChanged?: () => void;
+  onTranscriptToNotes?: (transcript: string) => void;
 }
 
 export function RecordingVersionHistory({
   slideId,
   isOpen,
   onClose,
-  onVersionChanged
+  onVersionChanged,
+  onTranscriptToNotes
 }: RecordingVersionHistoryProps) {
   const { getToken } = useAuth();
   const { toast } = useToast();
@@ -255,8 +257,25 @@ export function RecordingVersionHistory({
                       </div>
 
                       {recording.transcription && (
-                        <div className="mt-2 p-2 bg-muted rounded text-sm">
-                          {recording.transcription}
+                        <div className="mt-2 space-y-2">
+                          <div className="p-2 bg-muted rounded text-sm">
+                            {recording.transcription}
+                          </div>
+                          {onTranscriptToNotes && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                onTranscriptToNotes(recording.transcription!);
+                                toast({
+                                  title: 'Transcript Saved',
+                                  description: 'Transcript has been saved to speaker notes',
+                                });
+                              }}
+                            >
+                              Save to Speaker Notes
+                            </Button>
+                          )}
                         </div>
                       )}
                     </div>
