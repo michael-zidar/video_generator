@@ -1,5 +1,7 @@
 import express from 'express';
 import { get, all } from '../db.js';
+import puppeteer from 'puppeteer';
+import PptxGenJS from 'pptxgenjs';
 
 const router = express.Router();
 
@@ -7,9 +9,9 @@ const router = express.Router();
 const getTextColor = (bgColor) => {
   if (!bgColor) return '#1f2937';
   const hex = bgColor.replace('#', '');
-  const r = parseInt(hex.substr(0, 2), 16);
-  const g = parseInt(hex.substr(2, 2), 16);
-  const b = parseInt(hex.substr(4, 2), 16);
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
   const brightness = (r * 299 + g * 587 + b * 114) / 1000;
   return brightness > 128 ? '#1f2937' : '#f9fafb';
 };
@@ -179,6 +181,329 @@ ${slidesHTML}
   } catch (error) {
     console.error('Export error:', error);
     res.status(500).json({ error: 'Failed to export presentation' });
+  }
+});
+
+// GET /api/export/deck/:id/pdf - Export deck as PDF
+router.get('/deck/:id/pdf', async (req, res) => {
+  let browser;
+  try {
+    const deckId = req.params.id;
+
+    // Get deck
+    const deck = get('SELECT * FROM decks WHERE id = ?', [deckId]);
+    if (!deck) {
+      return res.status(404).json({ error: 'Deck not found' });
+    }
+
+    // Get lesson for title
+    const lesson = get('SELECT * FROM lessons WHERE id = ?', [deck.lesson_id]);
+    const title = lesson?.title || deck.title || 'Presentation';
+
+    // Get slides ordered by position
+    const slides = all('SELECT * FROM slides WHERE deck_id = ? ORDER BY position ASC', [deckId]);
+
+    if (!slides || slides.length === 0) {
+      return res.status(400).json({ error: 'Deck has no slides to export' });
+    }
+
+    // Calculate dimensions based on aspect ratio
+    const aspectRatio = deck.aspect_ratio || '16:9';
+    let width, height;
+    switch (aspectRatio) {
+      case '9:16':
+        width = 1080;
+        height = 1920;
+        break;
+      case '1:1':
+        width = 1920;
+        height = 1920;
+        break;
+      case '4:3':
+        width = 1440;
+        height = 1080;
+        break;
+      default: // 16:9
+        width = 1920;
+        height = 1080;
+    }
+
+    // Generate PDF pages HTML (one slide per page)
+    const pagesHTML = slides.map(slide => {
+      const bgColor = slide.background_color || '#ffffff';
+      return `
+        <div class="pdf-page" style="
+          width: ${width}px;
+          height: ${height}px;
+          background-color: ${bgColor};
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          padding: 4rem;
+          box-sizing: border-box;
+          page-break-after: always;
+        ">
+          ${renderSlideHTML(slide)}
+        </div>`;
+    }).join('\n');
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>${escapeHtml(title)}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; }
+    @page { margin: 0; }
+    .pdf-page { position: relative; }
+  </style>
+</head>
+<body>
+${pagesHTML}
+</body>
+</html>`;
+
+    // Launch Puppeteer to generate PDF
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    });
+
+    const page = await browser.newPage();
+    await page.setViewport({ width, height });
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+
+    const pdfBuffer = await page.pdf({
+      width: `${width}px`,
+      height: `${height}px`,
+      printBackground: true,
+      pageRanges: `1-${slides.length}`,
+    });
+
+    await browser.close();
+    browser = null;
+
+    // Set headers for file download
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${title.replace(/[^a-zA-Z0-9]/g, '_')}.pdf"`);
+    res.send(pdfBuffer);
+
+  } catch (error) {
+    console.error('PDF export error:', error);
+    if (browser) {
+      await browser.close();
+    }
+    res.status(500).json({ error: 'Failed to export PDF' });
+  }
+});
+
+// GET /api/export/deck/:id/pptx - Export deck as PowerPoint
+router.get('/deck/:id/pptx', async (req, res) => {
+  try {
+    const deckId = req.params.id;
+
+    // Get deck
+    const deck = get('SELECT * FROM decks WHERE id = ?', [deckId]);
+    if (!deck) {
+      return res.status(404).json({ error: 'Deck not found' });
+    }
+
+    // Get lesson for title
+    const lesson = get('SELECT * FROM lessons WHERE id = ?', [deck.lesson_id]);
+    const title = lesson?.title || deck.title || 'Presentation';
+
+    // Get slides ordered by position
+    const slides = all('SELECT * FROM slides WHERE deck_id = ? ORDER BY position ASC', [deckId]);
+
+    if (!slides || slides.length === 0) {
+      return res.status(400).json({ error: 'Deck has no slides to export' });
+    }
+
+    // Create PowerPoint presentation
+    const pptx = new PptxGenJS();
+
+    // Set presentation properties
+    pptx.author = 'CourseVideo Studio';
+    pptx.title = title;
+    pptx.subject = 'Course Presentation';
+
+    // Calculate dimensions based on aspect ratio
+    const aspectRatio = deck.aspect_ratio || '16:9';
+    switch (aspectRatio) {
+      case '9:16':
+        pptx.defineLayout({ name: 'PORTRAIT', width: 7.5, height: 13.33 });
+        pptx.layout = 'PORTRAIT';
+        break;
+      case '1:1':
+        pptx.defineLayout({ name: 'SQUARE', width: 10, height: 10 });
+        pptx.layout = 'SQUARE';
+        break;
+      case '4:3':
+        pptx.layout = 'LAYOUT_4x3';
+        break;
+      default: // 16:9
+        pptx.layout = 'LAYOUT_16x9';
+    }
+
+    // Add slides
+    slides.forEach(slideData => {
+      const slide = pptx.addSlide();
+      const body = typeof slideData.body === 'string' ? JSON.parse(slideData.body) : slideData.body || {};
+      const layout = body.layout || 'title-body';
+      const bgColor = slideData.background_color || '#ffffff';
+
+      // Set background color
+      slide.background = { color: bgColor.replace('#', '') };
+
+      // Add content based on layout
+      switch (layout) {
+        case 'title-only':
+          slide.addText(slideData.title || 'Untitled Slide', {
+            x: 0.5,
+            y: '40%',
+            w: '90%',
+            h: 1.5,
+            fontSize: 44,
+            bold: true,
+            color: getTextColor(bgColor).replace('#', ''),
+            align: 'center',
+            valign: 'middle',
+          });
+          break;
+
+        case 'title-bullets':
+          slide.addText(slideData.title || 'Untitled Slide', {
+            x: 0.5,
+            y: 0.5,
+            w: '90%',
+            h: 1,
+            fontSize: 36,
+            bold: true,
+            color: getTextColor(bgColor).replace('#', ''),
+          });
+
+          if (body.bullets && body.bullets.length > 0) {
+            slide.addText(body.bullets, {
+              x: 0.5,
+              y: 2,
+              w: '90%',
+              h: 4,
+              fontSize: 24,
+              bullet: true,
+              color: getTextColor(bgColor).replace('#', ''),
+            });
+          }
+          break;
+
+        case 'two-column':
+          slide.addText(slideData.title || 'Untitled Slide', {
+            x: 0.5,
+            y: 0.5,
+            w: '90%',
+            h: 1,
+            fontSize: 36,
+            bold: true,
+            color: getTextColor(bgColor).replace('#', ''),
+          });
+
+          if (body.bullets && body.bullets.length > 0) {
+            const midpoint = Math.ceil(body.bullets.length / 2);
+            const left = body.bullets.slice(0, midpoint);
+            const right = body.bullets.slice(midpoint);
+
+            slide.addText(left, {
+              x: 0.5,
+              y: 2,
+              w: '43%',
+              h: 4,
+              fontSize: 20,
+              bullet: true,
+              color: getTextColor(bgColor).replace('#', ''),
+            });
+
+            slide.addText(right, {
+              x: '52%',
+              y: 2,
+              w: '43%',
+              h: 4,
+              fontSize: 20,
+              bullet: true,
+              color: getTextColor(bgColor).replace('#', ''),
+            });
+          }
+          break;
+
+        case 'centered':
+          slide.addText(slideData.title || 'Untitled Slide', {
+            x: 0.5,
+            y: '35%',
+            w: '90%',
+            h: 1.5,
+            fontSize: 44,
+            bold: true,
+            color: getTextColor(bgColor).replace('#', ''),
+            align: 'center',
+            valign: 'middle',
+          });
+
+          if (body.text) {
+            const subtitleColor = getTextColor(bgColor) === '#1f2937' ? '6b7280' : 'd1d5db';
+            slide.addText(body.text, {
+              x: '10%',
+              y: '50%',
+              w: '80%',
+              h: 1.5,
+              fontSize: 24,
+              color: subtitleColor,
+              align: 'center',
+              valign: 'middle',
+            });
+          }
+          break;
+
+        default: // title-body
+          slide.addText(slideData.title || 'Untitled Slide', {
+            x: 0.5,
+            y: 0.5,
+            w: '90%',
+            h: 1,
+            fontSize: 36,
+            bold: true,
+            color: getTextColor(bgColor).replace('#', ''),
+          });
+
+          if (body.text) {
+            const subtitleColor = getTextColor(bgColor) === '#1f2937' ? '6b7280' : 'd1d5db';
+            slide.addText(body.text, {
+              x: 0.5,
+              y: 2,
+              w: '90%',
+              h: 3,
+              fontSize: 20,
+              color: subtitleColor,
+            });
+          }
+      }
+
+      // Add speaker notes if available
+      if (slideData.speaker_notes) {
+        slide.addNotes(slideData.speaker_notes);
+      }
+    });
+
+    // Generate PPTX file
+    const pptxBuffer = await pptx.write({ outputType: 'nodebuffer' });
+
+    // Set headers for file download
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
+    res.setHeader('Content-Disposition', `attachment; filename="${title.replace(/[^a-zA-Z0-9]/g, '_')}.pptx"`);
+    res.send(pptxBuffer);
+
+  } catch (error) {
+    console.error('PPTX export error:', error);
+    res.status(500).json({ error: 'Failed to export PowerPoint' });
   }
 });
 

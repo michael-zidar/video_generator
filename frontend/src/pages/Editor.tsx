@@ -1677,12 +1677,27 @@ export function Editor() {
                 Export as RevealJS HTML
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => toast({
-                title: 'Export PDF',
-                description: 'PDF export coming soon.',
-              })}>
+              <DropdownMenuItem onClick={() => {
+                if (!deck) return
+                window.open(`${API_BASE_URL}/api/export/deck/${deck.id}/pdf`, '_blank')
+                toast({
+                  title: 'Export Started',
+                  description: 'Your PDF is being generated.',
+                })
+              }}>
                 <FileText className="mr-2 h-4 w-4" />
                 Export as PDF
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => {
+                if (!deck) return
+                window.open(`${API_BASE_URL}/api/export/deck/${deck.id}/pptx`, '_blank')
+                toast({
+                  title: 'Export Started',
+                  description: 'Your PowerPoint presentation is being downloaded.',
+                })
+              }}>
+                <FileDown className="mr-2 h-4 w-4" />
+                Export as PowerPoint (PPTX)
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
