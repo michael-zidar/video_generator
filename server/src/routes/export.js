@@ -9,9 +9,9 @@ const router = express.Router();
 const getTextColor = (bgColor) => {
   if (!bgColor) return '#1f2937';
   const hex = bgColor.replace('#', '');
-  const r = parseInt(hex.substr(0, 2), 16);
-  const g = parseInt(hex.substr(2, 2), 16);
-  const b = parseInt(hex.substr(4, 2), 16);
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
   const brightness = (r * 299 + g * 587 + b * 114) / 1000;
   return brightness > 128 ? '#1f2937' : '#f9fafb';
 };
@@ -203,6 +203,10 @@ router.get('/deck/:id/pdf', async (req, res) => {
     // Get slides ordered by position
     const slides = all('SELECT * FROM slides WHERE deck_id = ? ORDER BY position ASC', [deckId]);
 
+    if (!slides || slides.length === 0) {
+      return res.status(400).json({ error: 'Deck has no slides to export' });
+    }
+
     // Calculate dimensions based on aspect ratio
     const aspectRatio = deck.aspect_ratio || '16:9';
     let width, height;
@@ -313,6 +317,10 @@ router.get('/deck/:id/pptx', async (req, res) => {
     // Get slides ordered by position
     const slides = all('SELECT * FROM slides WHERE deck_id = ? ORDER BY position ASC', [deckId]);
 
+    if (!slides || slides.length === 0) {
+      return res.status(400).json({ error: 'Deck has no slides to export' });
+    }
+
     // Create PowerPoint presentation
     const pptx = new PptxGenJS();
 
@@ -325,12 +333,12 @@ router.get('/deck/:id/pptx', async (req, res) => {
     const aspectRatio = deck.aspect_ratio || '16:9';
     switch (aspectRatio) {
       case '9:16':
-        pptx.layout = 'LAYOUT_CUSTOM';
         pptx.defineLayout({ name: 'PORTRAIT', width: 7.5, height: 13.33 });
+        pptx.layout = 'PORTRAIT';
         break;
       case '1:1':
-        pptx.layout = 'LAYOUT_CUSTOM';
         pptx.defineLayout({ name: 'SQUARE', width: 10, height: 10 });
+        pptx.layout = 'SQUARE';
         break;
       case '4:3':
         pptx.layout = 'LAYOUT_4x3';
