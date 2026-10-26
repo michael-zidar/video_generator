@@ -17,7 +17,7 @@
     "dotenv": "^17.2.3",
     "express": "^4.18.2",
     "multer": "^2.5.0",
-    "openai": "^6.15.0",
+    "openai": "^7.41.0",
     "pptxgenjs": "^4.0.1",
     "puppeteer": "^24.34.0",
     "sql.js": "^1.10.0",
